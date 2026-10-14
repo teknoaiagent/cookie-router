@@ -1,0 +1,24 @@
+[Unit]
+Description=Cookie Router - Web Cookie LLM Gateway
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/cookie-router
+ExecStart=/opt/cookie-router/cookie-router -config /opt/cookie-router/config.json
+Restart=always
+RestartSec=5
+Environment=HOME=/root
+
+# Resource limits (STB-friendly)
+MemoryMax=64M
+CPUQuota=80%
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=cookie-router
+
+[Install]
+WantedBy=multi-user.target

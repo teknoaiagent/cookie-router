@@ -1,0 +1,34 @@
+# Binaries
+*.exe
+cookie-router
+dist/
+bin/
+
+# Private configuration containing cookies & tokens
+config.json
+*.local.json
+
+# Logs & temporary runtime files
+*.log
+*.tmp
+*.bak
+*.zip
+*.tar.gz
+
+# Python inspection scripts & virtualenvs
+__pycache__/
+*.pyc
+venv/
+.venv/
+check_*.py
+test_*.py
+hook_*.py
+find_*.py
+switch_*.py
+type_*.py
+
+# OS / Editor files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
