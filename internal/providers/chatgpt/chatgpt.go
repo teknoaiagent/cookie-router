@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"strings"
 	"sync"
@@ -33,6 +34,9 @@ type Provider struct {
 type cachedToken struct {
 	accessToken string
 	accountID   string
+	userEmail   string
+	userName    string
+	planType    string
 	expiresAt   time.Time
 }
 
@@ -116,8 +120,14 @@ func (p *Provider) getSession(ctx context.Context, rawCookie string) (*cachedTok
 		AccessToken string `json:"accessToken"`
 		Expires     string `json:"expires"`
 		Error       string `json:"error"`
-		Account     struct {
-			ID string `json:"id"`
+		User        struct {
+			ID    string `json:"id"`
+			Name  string `json:"name"`
+			Email string `json:"email"`
+		} `json:"user"`
+		Account struct {
+			ID       string `json:"id"`
+			PlanType string `json:"planType"`
 		} `json:"account"`
 	}
 
@@ -145,11 +155,34 @@ func (p *Provider) getSession(ctx context.Context, rawCookie string) (*cachedTok
 	cached := &cachedToken{
 		accessToken: sessionData.AccessToken,
 		accountID:   sessionData.Account.ID,
+		userEmail:   sessionData.User.Email,
+		userName:    sessionData.User.Name,
+		planType:    sessionData.Account.PlanType,
 		expiresAt:   exp,
 	}
 	p.tokenCache.Store(cacheKey, cached)
 
 	return cached, nil
+}
+
+func (p *Provider) DetectAccountInfo(ctx context.Context, cookie string) (*providers.AccountInfo, error) {
+	tok, err := p.getSession(ctx, cookie)
+	if err != nil {
+		return nil, err
+	}
+	plan := tok.planType
+	if plan == "" {
+		if tok.accountID != "" {
+			plan = "plus"
+		} else {
+			plan = "free"
+		}
+	}
+	return &providers.AccountInfo{
+		Email: tok.userEmail,
+		Name:  tok.userName,
+		Plan:  plan,
+	}, nil
 }
 
 func (p *Provider) getAccessToken(ctx context.Context, rawCookie string) (string, error) {
@@ -248,6 +281,40 @@ func (p *Provider) GetAvailableModels(ctx context.Context, cookie string) ([]str
 	}
 
 	return p.DefaultModels(), nil
+}
+
+func cleanChatGPTModelSlug(model string) (string, string) {
+	m := strings.ToLower(strings.TrimSpace(model))
+	effort := ""
+	if strings.Contains(m, "instant") || strings.Contains(m, "low") {
+		effort = "low"
+	} else if strings.Contains(m, "medium") {
+		effort = "medium"
+	} else if strings.Contains(m, "thinking") || strings.Contains(m, "high") {
+		effort = "high"
+	}
+
+	slug := "auto"
+	if strings.Contains(m, "gpt-6") {
+		slug = "gpt-6"
+	} else if strings.Contains(m, "gpt-5-6") {
+		slug = "gpt-5-6"
+	} else if strings.Contains(m, "gpt-4o-mini") {
+		slug = "gpt-4o-mini"
+	} else if strings.Contains(m, "gpt-4o") {
+		slug = "gpt-4o"
+	} else if strings.Contains(m, "o1-mini") {
+		slug = "o1-mini"
+	} else if strings.Contains(m, "o1") {
+		slug = "o1"
+	} else if strings.Contains(m, "o3-mini") {
+		slug = "o3-mini"
+	} else if strings.Contains(m, "dall-e-3") || strings.Contains(m, "gpt-image-2") {
+		slug = "gpt-image-2"
+	} else if m != "" && m != "auto" {
+		slug = m
+	}
+	return slug, effort
 }
 
 func extractCookieField(cookieHeader, name string) string {
@@ -353,21 +420,69 @@ func (p *Provider) ChatStream(ctx context.Context, req *models.ChatCompletionReq
 	parts = append(parts, currentPrompt)
 	combinedUserMessage := strings.Join(parts, "\n\n")
 
-	modelSlug := strings.TrimSpace(req.Model)
-	if modelSlug == "" {
-		modelSlug = "auto"
+	// Collect any attached images (multimodal vision / img2img)
+	var attachedImageURLs []string
+	for _, m := range req.Messages {
+		if urls := m.ImageURLs(); len(urls) > 0 {
+			attachedImageURLs = append(attachedImageURLs, urls...)
+		}
+	}
+
+	userUploadedFileIDs := make(map[string]bool)
+	var contentParts []interface{}
+	for _, imgURL := range attachedImageURLs {
+		imgBytes, mimeType, err := utils.ParseImageData(imgURL)
+		if err == nil && len(imgBytes) > 0 {
+			fileID, err := p.UploadImageFile(ctx, cookie, "uploaded_image.png", imgBytes, mimeType)
+			if err == nil && fileID != "" {
+				userUploadedFileIDs[fileID] = true
+				contentParts = append(contentParts, map[string]interface{}{
+					"content_type":  "image_asset_pointer",
+					"asset_pointer": "file-service://" + fileID,
+					"size_bytes":    len(imgBytes),
+					"width":         1024,
+					"height":        1024,
+				})
+				log.Printf("[CHATGPT] Multimodal image uploaded: %s (%d bytes)", fileID, len(imgBytes))
+			} else {
+				log.Printf("[CHATGPT] Image upload notice: %v", err)
+			}
+		}
+	}
+
+	slug, thinkingEffort := cleanChatGPTModelSlug(req.Model)
+	modelSlug := slug
+
+	if thinkingEffort != "" {
+		effortDirective := ""
+		switch thinkingEffort {
+		case "low":
+			effortDirective = "[Thinking Effort: Instant / Low - Jawab langsung, ringkas, dan cepat tanpa penalaran panjang]\n\n"
+		case "medium":
+			effortDirective = "[Thinking Effort: Medium - Penalaran berimbang dan terstruktur]\n\n"
+		case "high":
+			effortDirective = "[Thinking Effort: High - Gunakan penalaran mendalam, teliti, dan analisis menyeluruh]\n\n"
+		}
+		combinedUserMessage = effortDirective + combinedUserMessage
+	}
+
+	userMsgContent := map[string]interface{}{}
+	if len(contentParts) > 0 {
+		contentParts = append(contentParts, combinedUserMessage)
+		userMsgContent["content_type"] = "multimodal_text"
+		userMsgContent["parts"] = contentParts
+	} else {
+		userMsgContent["content_type"] = "text"
+		userMsgContent["parts"] = []string{combinedUserMessage}
 	}
 
 	payload := map[string]interface{}{
 		"action": "next",
 		"messages": []map[string]interface{}{
 			{
-				"id":     randomUUID(),
-				"author": map[string]string{"role": "user"},
-				"content": map[string]interface{}{
-					"content_type": "text",
-					"parts":        []string{combinedUserMessage},
-				},
+				"id":      randomUUID(),
+				"author":  map[string]string{"role": "user"},
+				"content": userMsgContent,
 			},
 		},
 		"model":                         modelSlug,
@@ -440,6 +555,8 @@ func (p *Provider) ChatStream(ctx context.Context, req *models.ChatCompletionReq
 
 	reader := bufio.NewReader(resp.Body)
 	scanner := bufio.NewScanner(reader)
+	buf := make([]byte, 1024*1024)
+	scanner.Buffer(buf, 16*1024*1024)
 
 	chunkID := "chatcmpl-cgpt-" + randomUUID()[:8]
 	var previousText string
@@ -451,10 +568,17 @@ func (p *Provider) ChatStream(ctx context.Context, req *models.ChatCompletionReq
 		if !strings.HasPrefix(line, "data: ") {
 			continue
 		}
-
 		data := strings.TrimPrefix(line, "data: ")
 		if data == "[DONE]" {
+			log.Printf("[RAW-SSE] [DONE]")
 			break
+		}
+		if len(data) > 0 {
+			log.Printf("[RAW-SSE-FULL] %s", data)
+		}
+
+		if len(data) > 0 && !strings.HasPrefix(data, "{") {
+			continue
 		}
 
 		var event struct {
@@ -488,40 +612,48 @@ func (p *Provider) ChatStream(ctx context.Context, req *models.ChatCompletionReq
 		}
 
 		if event.Error != nil {
+			log.Printf("[CHATGPT-SSE-ERR] event error: %v", event.Error)
 			return fmt.Errorf("ChatGPT stream event error: %v", event.Error)
 		}
 
-		// Detect generated images in multimodal parts (delivered via tool or assistant)
-		for _, part := range event.Message.Content.Parts {
-			if partMap, ok := part.(map[string]interface{}); ok {
-				cType, _ := partMap["content_type"].(string)
-				assetPtr, _ := partMap["asset_pointer"].(string)
-				if cType == "image_asset_pointer" || strings.HasPrefix(assetPtr, "sediment://") || strings.HasPrefix(assetPtr, "file-service://") {
-					cleanFileID := strings.TrimPrefix(strings.TrimPrefix(assetPtr, "sediment://"), "file-service://")
-					if cleanFileID != "" && !seenImages[cleanFileID] {
-						seenImages[cleanFileID] = true
-						title := event.Message.Metadata.ImageGenTitle
-						if title == "" {
-							title = event.Message.Metadata.Dalle.Prompt
-						}
-						if title == "" {
-							title = "Generated Image"
-						}
+		if event.Message.Author.Role != "" {
+			log.Printf("[CHATGPT-SSE] role=%s, parts=%d, ctype=%s", event.Message.Author.Role, len(event.Message.Content.Parts), event.Message.Content.ContentType)
+		}
 
-						imgMarkdown := fmt.Sprintf("\n\n![%s](http://localhost:18899/v1/images/%s.png)\n\n", title, cleanFileID)
-						chunkChan <- &models.ChatCompletionChunk{
-							ID:      chunkID,
-							Object:  "chat.completion.chunk",
-							Created: time.Now().Unix(),
-							Model:   modelSlug,
-							Choices: []models.ChunkChoice{
-								{
-									Index: 0,
-									Delta: models.ChunkDelta{
-										Content: imgMarkdown,
+		// Detect generated images in multimodal parts (delivered via tool or assistant)
+		// Never treat user's uploaded reference image as the generated image output
+		if event.Message.Author.Role != "user" && event.Message.Author.Role != "system" {
+			for _, part := range event.Message.Content.Parts {
+				if partMap, ok := part.(map[string]interface{}); ok {
+					cType, _ := partMap["content_type"].(string)
+					assetPtr, _ := partMap["asset_pointer"].(string)
+					if cType == "image_asset_pointer" || strings.HasPrefix(assetPtr, "sediment://") || strings.HasPrefix(assetPtr, "file-service://") {
+						cleanFileID := strings.TrimPrefix(strings.TrimPrefix(assetPtr, "sediment://"), "file-service://")
+						if cleanFileID != "" && !seenImages[cleanFileID] && !userUploadedFileIDs[cleanFileID] {
+							seenImages[cleanFileID] = true
+							title := event.Message.Metadata.ImageGenTitle
+							if title == "" {
+								title = event.Message.Metadata.Dalle.Prompt
+							}
+							if title == "" {
+								title = "Generated Image"
+							}
+
+							imgMarkdown := fmt.Sprintf("\n\n![%s](http://localhost:18899/v1/images/%s.png)\n\n", title, cleanFileID)
+							chunkChan <- &models.ChatCompletionChunk{
+								ID:      chunkID,
+								Object:  "chat.completion.chunk",
+								Created: time.Now().Unix(),
+								Model:   modelSlug,
+								Choices: []models.ChunkChoice{
+									{
+										Index: 0,
+										Delta: models.ChunkDelta{
+											Content: imgMarkdown,
+										},
 									},
 								},
-							},
+							}
 						}
 					}
 				}
@@ -552,6 +684,145 @@ func (p *Provider) ChatStream(ctx context.Context, req *models.ChatCompletionReq
 							},
 						},
 					}
+				}
+			}
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		log.Printf("[CHATGPT-SCANNER-ERR] %v", err)
+	}
+
+	// If no image was found in the initial SSE stream, poll the conversation endpoint
+	// ONLY if this was an image generation request (e.g. DALL-E / Plus async image generator)
+	isImageReq := strings.Contains(strings.ToLower(req.Model), "image") ||
+		strings.Contains(strings.ToLower(req.Model), "dall-e") ||
+		strings.Contains(strings.ToLower(currentPrompt), "buat gambar") ||
+		strings.Contains(strings.ToLower(currentPrompt), "buatkan gambar") ||
+		strings.Contains(strings.ToLower(currentPrompt), "buat foto") ||
+		strings.Contains(strings.ToLower(currentPrompt), "buatkan foto") ||
+		strings.Contains(strings.ToLower(currentPrompt), "generate image") ||
+		strings.Contains(strings.ToLower(currentPrompt), "create image")
+
+	if isImageReq && len(seenImages) == 0 && convID != "" {
+		pollCtx, pollCancel := context.WithTimeout(ctx, 150*time.Second)
+		defer pollCancel()
+
+		log.Printf("[IMAGE GEN ASYNC] Polling conversation %s for async image completion (timeout 150s)...", convID)
+		ticker := time.NewTicker(4 * time.Second)
+		defer ticker.Stop()
+		pollCount := 0
+
+	pollLoop:
+		for {
+			select {
+			case <-pollCtx.Done():
+				log.Printf("[IMAGE GEN ASYNC] Polling timeout reached for conversation %s", convID)
+				break pollLoop
+			case <-ticker.C:
+				pollCount++
+				convURL := fmt.Sprintf("%s/backend-api/conversation/%s", ChatGptBase, convID)
+				pReq, pErr := http.NewRequestWithContext(pollCtx, "GET", convURL, nil)
+				if pErr != nil {
+					continue
+				}
+				pReq.Header.Set("User-Agent", UserAgent)
+				pReq.Header.Set("Authorization", "Bearer "+accessToken)
+				if accountID != "" {
+					pReq.Header.Set("ChatGPT-Account-Id", accountID)
+				}
+				pReq.Header.Set("Cookie", cookieHeader)
+				pReq.Header.Set("Origin", ChatGptBase)
+				pReq.Header.Set("Referer", ChatGptBase+"/")
+
+				pResp, pErr := p.client.Do(pReq)
+				if pErr != nil || pResp.StatusCode != 200 {
+					if pResp != nil {
+						if pollCount%5 == 0 {
+							log.Printf("[IMAGE GEN ASYNC] Poll %d: status %d", pollCount, pResp.StatusCode)
+						}
+						pResp.Body.Close()
+					}
+					continue
+				}
+
+				var convData struct {
+					Mapping map[string]struct {
+						Message *struct {
+							ID      string `json:"id"`
+							Author  struct {
+								Role string `json:"role"`
+								Name string `json:"name"`
+							} `json:"author"`
+							Content struct {
+								ContentType string        `json:"content_type"`
+								Parts       []interface{} `json:"parts"`
+							} `json:"content"`
+							Metadata struct {
+								ImageGenTitle string `json:"image_gen_title"`
+								Dalle         struct {
+									Prompt string `json:"prompt"`
+								} `json:"dalle"`
+							} `json:"metadata"`
+						} `json:"message"`
+					} `json:"mapping"`
+				}
+
+				dErr := json.NewDecoder(pResp.Body).Decode(&convData)
+				pResp.Body.Close()
+				if dErr != nil {
+					continue
+				}
+
+				if pollCount%5 == 0 {
+					log.Printf("[IMAGE GEN ASYNC] Poll %d: %d nodes in mapping", pollCount, len(convData.Mapping))
+				}
+
+				foundImage := false
+				for _, node := range convData.Mapping {
+					if node.Message == nil || node.Message.Author.Role == "user" || node.Message.Author.Role == "system" {
+						continue
+					}
+					for _, part := range node.Message.Content.Parts {
+						if partMap, ok := part.(map[string]interface{}); ok {
+							cType, _ := partMap["content_type"].(string)
+							assetPtr, _ := partMap["asset_pointer"].(string)
+							if cType == "image_asset_pointer" || strings.HasPrefix(assetPtr, "sediment://") || strings.HasPrefix(assetPtr, "file-service://") {
+								cleanFileID := strings.TrimPrefix(strings.TrimPrefix(assetPtr, "sediment://"), "file-service://")
+								if cleanFileID != "" && !seenImages[cleanFileID] && !userUploadedFileIDs[cleanFileID] {
+									seenImages[cleanFileID] = true
+									foundImage = true
+									title := node.Message.Metadata.ImageGenTitle
+									if title == "" {
+										title = node.Message.Metadata.Dalle.Prompt
+									}
+									if title == "" {
+										title = "Generated Image"
+									}
+
+									log.Printf("[IMAGE GEN ASYNC] Found completed image: %s (title: %s)", cleanFileID, title)
+									imgMarkdown := fmt.Sprintf("\n\n![%s](http://localhost:18899/v1/images/%s.png)\n\n", title, cleanFileID)
+									chunkChan <- &models.ChatCompletionChunk{
+										ID:      chunkID,
+										Object:  "chat.completion.chunk",
+										Created: time.Now().Unix(),
+										Model:   modelSlug,
+										Choices: []models.ChunkChoice{
+											{
+												Index: 0,
+												Delta: models.ChunkDelta{
+													Content: imgMarkdown,
+												},
+											},
+										},
+									}
+								}
+							}
+						}
+					}
+				}
+
+				if foundImage {
+					break pollLoop
 				}
 			}
 		}
@@ -650,6 +921,120 @@ func (p *Provider) DownloadImage(ctx context.Context, cookie string, fileID stri
 	}
 
 	return io.ReadAll(resp2.Body)
+}
+
+// UploadImageFile uploads an image to ChatGPT backend-api files storage and returns the file_id
+func (p *Provider) UploadImageFile(ctx context.Context, cookie string, filename string, data []byte, mimeType string) (string, error) {
+	normCookie := utils.NormalizeCookie(cookie, "chatgpt")
+	tok, err := p.getSession(ctx, normCookie)
+	if err != nil {
+		return "", fmt.Errorf("failed to get session: %w", err)
+	}
+
+	deviceID := extractCookieField(normCookie, "oai-did")
+	if deviceID == "" {
+		deviceID = randomUUID()
+	}
+
+	if filename == "" {
+		filename = "image.png"
+	}
+	if mimeType == "" {
+		mimeType = "image/png"
+	}
+
+	// 1. Initialize file record
+	initPayload := map[string]interface{}{
+		"file_name": filename,
+		"file_size": len(data),
+		"use_case":  "multimodal",
+	}
+	initBytes, err := json.Marshal(initPayload)
+	if err != nil {
+		return "", err
+	}
+
+	req1, err := http.NewRequestWithContext(ctx, "POST", ChatGptBase+"/backend-api/files", bytes.NewReader(initBytes))
+	if err != nil {
+		return "", err
+	}
+	req1.Header.Set("User-Agent", UserAgent)
+	req1.Header.Set("Content-Type", "application/json")
+	req1.Header.Set("Authorization", "Bearer "+tok.accessToken)
+	if tok.accountID != "" {
+		req1.Header.Set("ChatGPT-Account-Id", tok.accountID)
+	}
+	req1.Header.Set("Cookie", normCookie)
+	req1.Header.Set("OAI-Device-Id", deviceID)
+	req1.Header.Set("Origin", ChatGptBase)
+	req1.Header.Set("Referer", ChatGptBase+"/")
+
+	resp1, err := p.client.Do(req1)
+	if err != nil {
+		return "", fmt.Errorf("failed to call files init: %w", err)
+	}
+	defer resp1.Body.Close()
+
+	if resp1.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(resp1.Body)
+		return "", fmt.Errorf("file init returned status %d: %s", resp1.StatusCode, string(b))
+	}
+
+	var initResp struct {
+		Status    string `json:"status"`
+		UploadURL string `json:"upload_url"`
+		FileID    string `json:"file_id"`
+	}
+	if err := json.NewDecoder(resp1.Body).Decode(&initResp); err != nil {
+		return "", fmt.Errorf("failed to decode file init response: %w", err)
+	}
+
+	if initResp.UploadURL == "" || initResp.FileID == "" {
+		return "", errors.New("empty upload_url or file_id from ChatGPT")
+	}
+
+	// 2. Upload file binary to Azure / storage blob
+	req2, err := http.NewRequestWithContext(ctx, "PUT", initResp.UploadURL, bytes.NewReader(data))
+	if err != nil {
+		return "", err
+	}
+	req2.Header.Set("x-ms-blob-type", "BlockBlob")
+	req2.Header.Set("Content-Type", mimeType)
+
+	resp2, err := p.client.Do(req2)
+	if err != nil {
+		return "", fmt.Errorf("failed to upload binary blob: %w", err)
+	}
+	defer resp2.Body.Close()
+
+	if resp2.StatusCode < 200 || resp2.StatusCode >= 300 {
+		b, _ := io.ReadAll(resp2.Body)
+		return "", fmt.Errorf("blob upload returned status %d: %s", resp2.StatusCode, string(b))
+	}
+
+	// 3. Mark file as uploaded
+	req3, err := http.NewRequestWithContext(ctx, "POST", fmt.Sprintf("%s/backend-api/files/%s/uploaded", ChatGptBase, initResp.FileID), strings.NewReader("{}"))
+	if err != nil {
+		return "", err
+	}
+	req3.Header.Set("User-Agent", UserAgent)
+	req3.Header.Set("Content-Type", "application/json")
+	req3.Header.Set("Authorization", "Bearer "+tok.accessToken)
+	if tok.accountID != "" {
+		req3.Header.Set("ChatGPT-Account-Id", tok.accountID)
+	}
+	req3.Header.Set("Cookie", normCookie)
+	req3.Header.Set("OAI-Device-Id", deviceID)
+	req3.Header.Set("Origin", ChatGptBase)
+	req3.Header.Set("Referer", ChatGptBase+"/")
+
+	resp3, err := p.client.Do(req3)
+	if err != nil {
+		return "", fmt.Errorf("failed to mark file uploaded: %w", err)
+	}
+	defer resp3.Body.Close()
+
+	return initResp.FileID, nil
 }
 
 // HideConversation archives/hides the conversation so it does not appear in user sidebar

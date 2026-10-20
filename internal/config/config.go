@@ -17,6 +17,8 @@ type Account struct {
 	ID              string    `json:"id"`
 	Provider        string    `json:"provider"`     // chatgpt, claude, grok, deepseek, gemini
 	Name            string    `json:"name"`         // User friendly label
+	Email           string    `json:"email,omitempty"`
+	Plan            string    `json:"plan,omitempty"` // free, plus, team, etc.
 	Cookie          string    `json:"cookie"`       // Session cookie or token
 	DefaultModel    string    `json:"defaultModel"` // e.g. gpt-4o, claude-3-5-sonnet, grok-2
 	AvailableModels []string  `json:"availableModels,omitempty"`
@@ -217,6 +219,24 @@ func (m *Manager) SetAccountModels(id string, models []string) {
 	for _, a := range m.cfg.Accounts {
 		if a.ID == id {
 			a.AvailableModels = models
+			_ = m.Save()
+			return
+		}
+	}
+}
+
+func (m *Manager) SetAccountProfile(id, email, plan string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	for _, a := range m.cfg.Accounts {
+		if a.ID == id {
+			if email != "" {
+				a.Email = email
+			}
+			if plan != "" {
+				a.Plan = plan
+			}
 			_ = m.Save()
 			return
 		}

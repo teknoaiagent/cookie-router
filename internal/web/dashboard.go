@@ -123,6 +123,40 @@ textarea{resize:vertical;min-height:90px;font-family:monospace;font-size:0.8rem}
 .btn-media-copy{background:#1e293b;color:#94a3b8;border-color:#334155}
 .btn-media-copy:hover{background:#334155;color:#fff}
 
+/* Google Gemini Model Switcher styles */
+.gemini-switcher{position:relative;display:inline-block;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
+.gemini-switcher-btn{background:#090d16;border:1px solid #334155;border-radius:8px;padding:6px 14px;color:#f1f5f9;font-size:0.85rem;font-weight:600;display:inline-flex;align-items:center;gap:6px;cursor:pointer;transition:all 0.2s;outline:none}
+.gemini-switcher-btn:hover{background:#1e293b;border-color:#38bdf8}
+.gemini-switcher-btn .g-sparkle{color:#38bdf8;font-size:0.9rem}
+.gemini-switcher-btn .g-chevron{color:#94a3b8;font-size:0.7rem;margin-left:2px}
+.gemini-menu{display:none;position:absolute;top:calc(100% + 6px);left:0;background:#111520;border:1px solid #283347;border-radius:12px;box-shadow:0 14px 40px rgba(0,0,0,0.65), 0 2px 10px rgba(0,0,0,0.5);min-width:240px;padding:6px 0;z-index:9999}
+.gemini-menu.show{display:block}
+.gemini-item{display:flex;align-items:center;gap:10px;padding:8px 14px;cursor:pointer;transition:background 0.15s;position:relative;border-radius:6px;margin:2px 4px}
+.gemini-item:hover{background:#1e2638}
+.gemini-check{width:16px;font-size:0.9rem;font-weight:700;color:#38bdf8;display:inline-block;text-align:center}
+.gemini-text-block{flex:1;display:flex;flex-direction:column;gap:1px}
+.gemini-title{font-size:0.86rem;font-weight:600;color:#f8fafc}
+.gemini-sub{font-size:0.75rem;color:#94a3b8}
+.gemini-divider{height:1px;background:#242d3d;margin:4px 0}
+.gemini-arrow{color:#94a3b8;font-size:0.8rem}
+.gemini-submenu{display:none;position:absolute;top:0;left:100%;margin-left:4px;background:#111520;border:1px solid #283347;border-radius:12px;box-shadow:0 14px 40px rgba(0,0,0,0.65), 0 2px 10px rgba(0,0,0,0.5);min-width:200px;padding:6px 0;z-index:10000}
+.gemini-parent-item:hover .gemini-submenu, .gemini-submenu.show{display:block}
+
+/* ChatGPT Thinking Effort UI */
+.chatgpt-effort-switcher{position:relative;display:inline-block;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
+.chatgpt-effort-btn{background:#090d16;border:1px solid #334155;border-radius:20px;padding:6px 14px;color:#cbd5e1;font-size:0.82rem;font-weight:500;display:inline-flex;align-items:center;gap:6px;cursor:pointer;transition:all 0.2s;outline:none}
+.chatgpt-effort-btn:hover{background:#1e293b;border-color:#38bdf8;color:#fff}
+.cgpt-chevron{font-size:0.75rem;color:#94a3b8}
+.chatgpt-effort-menu{display:none;position:absolute;top:calc(100% + 6px);left:0;background:#181b22;border:1px solid #2d3444;border-radius:14px;box-shadow:0 14px 40px rgba(0,0,0,0.7);padding:14px 16px;min-width:220px;z-index:9999}
+.chatgpt-effort-menu.show{display:block}
+.cgpt-effort-header{display:flex;align-items:center;justify-content:space-between;cursor:pointer;padding-bottom:10px;font-size:0.92rem;border-bottom:1px solid #283040}
+.cgpt-slider-box{margin-top:12px;position:relative}
+.cgpt-slider-box input[type=range]{width:100%;-webkit-appearance:none;height:6px;border-radius:3px;background:#334155;outline:none;cursor:pointer}
+.cgpt-slider-box input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:16px;height:16px;border-radius:50%;background:#ffffff;box-shadow:0 2px 6px rgba(0,0,0,0.5);cursor:pointer}
+.cgpt-slider-dots{display:flex;justify-content:space-between;position:relative;top:-11px;pointer-events:none;padding:0 2px}
+.cgpt-dot{width:6px;height:6px;border-radius:50%;background:#64748b}
+.cgpt-slider-labels{display:flex;justify-content:space-between;font-size:0.72rem;color:#94a3b8;margin-top:2px}
+
 /* Code block wrapper */
 .code-block-wrapper{margin:10px 0;background:#02040a;border:1px solid #1e293b;border-radius:8px;overflow:hidden}
 .code-block-header{display:flex;align-items:center;justify-content:space-between;padding:6px 12px;background:#0d1526;border-bottom:1px solid #1e293b;font-size:0.72rem;color:#94a3b8;text-transform:uppercase}
@@ -368,16 +402,17 @@ textarea{resize:vertical;min-height:90px;font-family:monospace;font-size:0.8rem}
     </select>
    </div>
    <div class="form-group">
-    <label>Name (Label)</label>
-    <input id="newName" placeholder="e.g. My ChatGPT Plus">
+    <label>Name (Label) <span style="font-size:0.75rem;color:#94a3b8;font-weight:normal">(Auto-detects from cookie if empty)</span></label>
+    <input id="newName" placeholder="e.g. My Account or email@gmail.com">
    </div>
    <div class="form-group">
     <label>Default Model</label>
     <input id="newModel" placeholder="e.g. gpt-4o">
    </div>
    <div class="form-group full">
-    <label>Cookie / Token / Cookie-Editor Export</label>
-    <textarea id="newCookie" placeholder="Paste session cookie, header string, or Cookie-Editor export (TSV/JSON)..."></textarea>
+    <label>Cookie / Token / Cookie-Editor Export <span style="font-size:0.75rem;color:#38bdf8;font-weight:normal">⚡ Auto-detects Email &amp; Plan on paste</span></label>
+    <textarea id="newCookie" placeholder="Paste session cookie, header string, or Cookie-Editor export (TSV/JSON)..." oninput="onCookieInput()" onpaste="setTimeout(onCookieInput, 50)"></textarea>
+    <div id="cookieDetectStatus" style="display:none;margin-top:6px;font-size:0.8rem;padding:6px 12px;border-radius:6px"></div>
     <p id="cookieHint" style="font-size:0.75rem;color:#38bdf8;margin-top:4px"></p>
    </div>
   </div>
@@ -403,12 +438,114 @@ textarea{resize:vertical;min-height:90px;font-family:monospace;font-size:0.8rem}
      <option value="">🎯 Akun: Auto Round-Robin</option>
     </select>
     <select id="chatModel" class="chat-model-select" title="Pilih Model"></select>
+    <div id="geminiSwitcher" class="gemini-switcher" style="display:none">
+     <button type="button" id="geminiSwitcherBtn" class="gemini-switcher-btn" onclick="toggleGeminiMenu(event)">
+      <span class="g-sparkle">✨</span>
+      <span id="geminiActiveModelLabel">4 Argon</span>
+      <span class="g-chevron">▾</span>
+     </button>
+     <div id="geminiMenu" class="gemini-menu">
+      <div class="gemini-item" onclick="selectGeminiModel('gemini-3.5-flash-lite', '3.5 Flash-Lite')">
+       <span class="gemini-check" id="check_35"></span>
+       <div class="gemini-text-block">
+        <div class="gemini-title">3.5 Flash-Lite</div>
+        <div class="gemini-sub">Jawaban tercepat</div>
+       </div>
+      </div>
+      <div class="gemini-item" onclick="selectGeminiModel('gemini-3.8-flash', '3.8 Flash')">
+       <span class="gemini-check" id="check_38"></span>
+       <div class="gemini-text-block">
+        <div class="gemini-title">3.8 Flash</div>
+        <div class="gemini-sub">Bantuan serbaguna</div>
+       </div>
+      </div>
+      <div class="gemini-item" onclick="selectGeminiModel('gemini-3.1-pro', '3.1 Pro')">
+       <span class="gemini-check" id="check_31"></span>
+       <div class="gemini-text-block">
+        <div class="gemini-title">3.1 Pro</div>
+        <div class="gemini-sub">Penalaran yang canggih</div>
+       </div>
+      </div>
+      <div class="gemini-item" onclick="selectGeminiModel('gemini-4-argon', '4 Argon')">
+       <span class="gemini-check" id="check_4">✓</span>
+       <div class="gemini-text-block">
+        <div class="gemini-title">4 Argon</div>
+        <div class="gemini-sub">Tugas kompleks</div>
+       </div>
+      </div>
+      <div class="gemini-divider"></div>
+      <div class="gemini-item gemini-parent-item" id="reasoningItem">
+       <span class="gemini-check" style="visibility:hidden">✓</span>
+       <div class="gemini-text-block">
+        <div class="gemini-title" style="display:flex;align-items:center;justify-content:space-between">
+         <span>Tingkat penalaran</span>
+         <span class="gemini-arrow">▸</span>
+        </div>
+       </div>
+       <div id="geminiSubmenu" class="gemini-submenu">
+        <div class="gemini-item" onclick="selectGeminiModel('gemini-4-argon-low', '4 Argon (Rendah)', 'low')">
+         <span class="gemini-check" id="check_r_low"></span>
+         <div class="gemini-text-block">
+          <div class="gemini-title">Rendah</div>
+          <div class="gemini-sub">Cepat dan efisien</div>
+         </div>
+        </div>
+        <div class="gemini-item" onclick="selectGeminiModel('gemini-4-argon-medium', '4 Argon (Sedang)', 'medium')">
+         <span class="gemini-check" id="check_r_med"></span>
+         <div class="gemini-text-block">
+          <div class="gemini-title">Sedang</div>
+          <div class="gemini-sub">Kedalaman seimbang</div>
+         </div>
+        </div>
+        <div class="gemini-item" onclick="selectGeminiModel('gemini-4-argon-high', '4 Argon (Tinggi)', 'high')">
+         <span class="gemini-check" id="check_r_high">✓</span>
+         <div class="gemini-text-block">
+          <div class="gemini-title">Tinggi</div>
+          <div class="gemini-sub">Sangat menyeluruh</div>
+         </div>
+        </div>
+       </div>
+      </div>
+     </div>
+    </div>
+    <div id="chatgptEffortSwitcher" class="chatgpt-effort-switcher" style="display:none">
+     <button type="button" id="chatgptEffortBtn" class="chatgpt-effort-btn" onclick="toggleChatGPTEffortMenu(event)">
+      <span>Thinking effort</span>
+      <span class="cgpt-chevron">˅</span>
+     </button>
+     <div id="chatgptEffortMenu" class="chatgpt-effort-menu">
+      <div class="cgpt-effort-header" onclick="cycleChatGPTEffort()">
+       <span id="cgptEffortLabel" style="font-weight:700;color:#fff">High</span>
+       <span style="color:#94a3b8;font-size:0.8rem">›</span>
+      </div>
+      <div class="cgpt-slider-box">
+       <input type="range" id="cgptEffortRange" min="0" max="2" step="1" value="2" oninput="onChatGPTEffortSlide(this.value)">
+       <div class="cgpt-slider-dots">
+        <span class="cgpt-dot" onclick="onChatGPTEffortSlide(0)" title="Instant"></span>
+        <span class="cgpt-dot" onclick="onChatGPTEffortSlide(1)" title="Medium"></span>
+        <span class="cgpt-dot" onclick="onChatGPTEffortSlide(2)" title="High"></span>
+       </div>
+       <div class="cgpt-slider-labels">
+        <span onclick="onChatGPTEffortSlide(0)" style="cursor:pointer">Instant</span>
+        <span onclick="onChatGPTEffortSlide(1)" style="cursor:pointer">Medium</span>
+        <span onclick="onChatGPTEffortSlide(2)" style="cursor:pointer">High</span>
+       </div>
+      </div>
+     </div>
+    </div>
     <div id="mediaOptionsRow" style="display:none;align-items:center;gap:6px">
      <select id="mediaAspect" class="chat-model-select" title="Rasio Aspek">
       <option value="16:9">16:9 Landscape</option>
       <option value="9:16">9:16 Portrait</option>
       <option value="1:1">1:1 Square</option>
       <option value="4:3">4:3 Standard</option>
+     </select>
+     <select id="mediaStyle" class="chat-model-select" title="Preset Gaya Visual" style="display:none">
+      <option value="none" selected>📷 Asli / Realistis Bawaan (Rekomendasi)</option>
+      <option value="flare">✨ Flare (Artistik Hangat)</option>
+      <option value="sunburst">☀️ Sunburst (Sinar Keemasan)</option>
+      <option value="vibrant">🎨 Vibrant / Sinematik</option>
+      <option value="natural">🌿 Natural Murni</option>
      </select>
      <select id="mediaDuration" class="chat-model-select" title="Durasi Video" style="display:none">
       <option value="5">5 Detik</option>
@@ -430,15 +567,22 @@ textarea{resize:vertical;min-height:90px;font-family:monospace;font-size:0.8rem}
    </div>
   </div>
 
-  <div class="chat-input-bar">
-   <textarea id="chatInput" class="chat-textarea" rows="1" spellcheck="false" placeholder="Ketik pesan untuk AI... (Enter untuk kirim, Shift+Enter untuk baris baru)" onkeydown="handleChatInputKey(event)" oninput="autoGrowTextarea(this)"></textarea>
-   <button class="btn btn-primary btn-sm" id="btnSendChat" onclick="sendTestChat()" style="height:44px;padding:0 18px;display:flex;align-items:center;gap:6px">
-    <span>Kirim</span>
-    <span>🚀</span>
-   </button>
+  <div class="chat-input-bar" style="flex-direction:column;align-items:stretch;gap:6px">
+   <div id="imageAttachmentPreviewBar" style="display:none;padding:6px 10px;background:#090d16;border:1px solid #334155;border-radius:8px;align-items:center;gap:10px;flex-wrap:wrap"></div>
+   <div style="display:flex;align-items:center;gap:8px;width:100%">
+    <label for="chatFileInput" class="btn btn-sm" style="background:#1e293b;color:#38bdf8;border:1px solid #334155;height:44px;display:flex;align-items:center;justify-content:center;padding:0 14px;cursor:pointer;border-radius:8px;flex-shrink:0" title="Attach Gambar / Foto (Screenshot / PNG / JPG / WebP)">
+     <span style="font-size:1.15rem">📎</span>
+    </label>
+    <input type="file" id="chatFileInput" accept="image/*" multiple style="display:none" onchange="onFilesSelected(event)">
+    <textarea id="chatInput" class="chat-textarea" rows="1" spellcheck="false" placeholder="Ketik pesan atau paste (Ctrl+V) screenshot gambar ke sini..." onkeydown="handleChatInputKey(event)" oninput="autoGrowTextarea(this)"></textarea>
+    <button class="btn btn-primary btn-sm" id="btnSendChat" onclick="sendTestChat()" style="height:44px;padding:0 18px;display:flex;align-items:center;gap:6px;flex-shrink:0">
+     <span>Kirim</span>
+     <span>🚀</span>
+    </button>
+   </div>
   </div>
   <div class="chat-input-hints">
-   <span>💡 <strong>Enter</strong> kirim / generate &bull; <strong>Shift+Enter</strong> baris baru &bull; Zero-Disk RAM Stream</span>
+   <span>💡 <strong>Enter</strong> kirim / generate &bull; <strong>Ctrl+V</strong> paste gambar clipboard &bull; <strong>📎</strong> attach &bull; Zero-Disk RAM Stream</span>
    <span id="chatStatusText" style="color:#38bdf8"></span>
   </div>
  </div>
@@ -573,6 +717,17 @@ async function refreshAccounts() {
   }
 
   list.innerHTML = accounts.map(a => {
+    let emailHtml = '';
+    if (a.email) {
+      const isPlus = a.plan && (a.plan.toLowerCase() === 'plus' || a.plan.toLowerCase() === 'pro' || a.plan.toLowerCase() === 'team');
+      const planBadge = a.plan ?
+        '<span style="font-size:0.7rem;padding:2px 8px;border-radius:12px;font-weight:700;' + (isPlus ? 'background:#065f46;color:#6ee7b7;border:1px solid #059669' : 'background:#1e293b;color:#94a3b8;border:1px solid #334155') + '">' + a.plan.toUpperCase() + '</span>' : '';
+      emailHtml = '<div style="display:flex;align-items:center;gap:6px;margin:3px 0 5px 0">' +
+        '<span style="color:#38bdf8;font-size:0.85rem;font-weight:600">✉️ ' + a.email + '</span>' +
+        planBadge +
+        '</div>';
+    }
+
     let modelsBadgesHtml = '';
     if (Array.isArray(a.availableModels) && a.availableModels.length > 0) {
       modelsBadgesHtml = '<div class="models-box">' +
@@ -590,7 +745,8 @@ async function refreshAccounts() {
       '<div class="account-info">' +
        '<span class="status-dot status-' + a.status + '"></span>' +
        '<span class="provider-badge provider-' + a.provider + '">' + a.provider + '</span>' +
-       '<div><strong>' + (a.name || a.provider) + '</strong>' +
+       '<div><div style="font-size:1.05rem;font-weight:bold;color:#f8fafc">' + (a.name || a.email || a.provider) + '</div>' +
+       emailHtml +
        '<div class="account-meta">Default: <code>' + (a.defaultModel || 'auto') + '</code> · Cookie: ' + a.cookieLen + ' chars · Status: ' + a.status + (a.lastError ? ' (' + a.lastError + ')' : '') + '</div></div>' +
       '</div>' +
       '<div class="btn-group">' +
@@ -608,6 +764,81 @@ async function refreshAccounts() {
  }
 }
 
+let detectedAccountInfo = null;
+let cookieProbeTimer = null;
+
+function onCookieInput() {
+ clearTimeout(cookieProbeTimer);
+ const cookie = document.getElementById('newCookie').value.trim();
+ const statusDiv = document.getElementById('cookieDetectStatus');
+ if (!cookie || cookie.length < 20) {
+  if (statusDiv) statusDiv.style.display = 'none';
+  detectedAccountInfo = null;
+  return;
+ }
+
+ if (statusDiv) {
+  statusDiv.style.display = 'block';
+  statusDiv.style.background = '#1e293b';
+  statusDiv.style.border = '1px solid #334155';
+  statusDiv.style.color = '#94a3b8';
+  statusDiv.innerHTML = '<span class="spin">⏳</span> Mendeteksi email &amp; status akun dari cookie...';
+ }
+
+ cookieProbeTimer = setTimeout(async () => {
+  const provider = document.getElementById('newProvider').value;
+  try {
+   const res = await fetch(API + '/api/accounts/probe', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ provider, cookie })
+   });
+   const data = await res.json();
+   if (data.email) {
+    detectedAccountInfo = data;
+    const nameInput = document.getElementById('newName');
+    if (!nameInput.value || nameInput.dataset.autofilled === 'true') {
+     nameInput.value = data.email;
+     nameInput.dataset.autofilled = 'true';
+    }
+    const modelInput = document.getElementById('newModel');
+    if (!modelInput.value && data.defaultModel) {
+     modelInput.value = data.defaultModel;
+    }
+    if (statusDiv) {
+     const planBadge = data.plan ? '<span style="background:#022c22;color:#6ee7b7;border:1px solid #059669;padding:2px 6px;border-radius:4px;font-weight:bold;margin-left:6px">' + data.plan.toUpperCase() + '</span>' : '';
+     statusDiv.style.background = '#064e3b';
+     statusDiv.style.border = '1px solid #059669';
+     statusDiv.style.color = '#a7f3d0';
+     statusDiv.innerHTML = '✅ <strong>Akun Terdeteksi:</strong> <span style="color:#38bdf8">' + data.email + '</span> ' + planBadge;
+    }
+    toast('Email terdeteksi: ' + data.email, 'success');
+   } else if (data.error) {
+    if (statusDiv) {
+     statusDiv.style.background = '#450a0a';
+     statusDiv.style.border = '1px solid #dc2626';
+     statusDiv.style.color = '#fca5a5';
+     statusDiv.innerHTML = '⚠️ Gagal membaca sesi: ' + data.error;
+    }
+   } else {
+    if (statusDiv) {
+     statusDiv.style.background = '#1e293b';
+     statusDiv.style.border = '1px solid #334155';
+     statusDiv.style.color = '#cbd5e1';
+     statusDiv.innerHTML = 'ℹ️ Cookie terformat (' + cookie.length + ' chars)';
+    }
+   }
+  } catch(e) {
+   if (statusDiv) {
+    statusDiv.style.background = '#450a0a';
+    statusDiv.style.border = '1px solid #dc2626';
+    statusDiv.style.color = '#fca5a5';
+    statusDiv.innerHTML = '⚠️ Error probe: ' + e.message;
+   }
+  }
+ }, 350);
+}
+
 async function addAccount() {
  const provider = document.getElementById('newProvider').value;
  const name = document.getElementById('newName').value;
@@ -617,16 +848,28 @@ async function addAccount() {
 
  toast('Saving account...', 'info');
  try {
+  const payload = {
+   provider,
+   name: name || (detectedAccountInfo && detectedAccountInfo.email) || provider,
+   defaultModel: model,
+   cookie,
+   email: (detectedAccountInfo && detectedAccountInfo.email) || '',
+   plan: (detectedAccountInfo && detectedAccountInfo.plan) || ''
+  };
   const r = await fetch(API + '/api/accounts', {
    method: 'POST',
    headers: {'Content-Type': 'application/json'},
-   body: JSON.stringify({provider, name: name || provider, defaultModel: model, cookie})
+   body: JSON.stringify(payload)
   });
   if (r.ok) {
    toast('Account added! Probing models in background...', 'success');
    toggleAddForm(false);
    document.getElementById('newCookie').value = '';
    document.getElementById('newName').value = '';
+   document.getElementById('newName').dataset.autofilled = 'false';
+   const st = document.getElementById('cookieDetectStatus');
+   if (st) st.style.display = 'none';
+   detectedAccountInfo = null;
    setTimeout(refreshAccounts, 1500);
   } else {
    const err = await r.json();
@@ -750,18 +993,23 @@ let playgroundMode = 'chat';
 function populatePlaygroundAccounts() {
  const sel = document.getElementById('chatAccount');
  if (!sel) return;
- const prevVal = sel.value;
+ const savedVal = localStorage.getItem('selectedPlaygroundAccount');
+ const prevVal = sel.value || savedVal || '';
+
  sel.innerHTML = '<option value="">🎯 Akun: Auto Round-Robin</option>';
  const accs = window.allAccounts || [];
  accs.filter(a => a.enabled !== false).forEach(a => {
   const opt = document.createElement('option');
   opt.value = a.id;
-  opt.textContent = (a.status === 'active' ? '🟢 ' : '⚪ ') + (a.name || a.id) + ' (' + (a.provider || '').toUpperCase() + ')';
+  const emailPart = a.email ? ' · ' + a.email : '';
+  const planPart = a.plan ? ' [' + a.plan.toUpperCase() + ']' : '';
+  opt.textContent = (a.status === 'active' ? '🟢 ' : '⚪ ') + (a.name || a.id) + emailPart + planPart + ' (' + (a.provider || '').toUpperCase() + ')';
   sel.appendChild(opt);
  });
- if (prevVal && Array.from(sel.options).some(o => o.value === prevVal)) {
+ if (prevVal && Array.from(sel.options).some(o => String(o.value) === String(prevVal))) {
   sel.value = prevVal;
  }
+ updatePlaygroundModelsForMode();
 }
 
 function switchPlaygroundMode(mode) {
@@ -775,21 +1023,25 @@ function switchPlaygroundMode(mode) {
 
  const mediaRow = document.getElementById('mediaOptionsRow');
  const durSel = document.getElementById('mediaDuration');
+ const styleSel = document.getElementById('mediaStyle');
  const chatInput = document.getElementById('chatInput');
  const sendBtn = document.getElementById('btnSendChat');
 
  if (mode === 'chat') {
   if (mediaRow) mediaRow.style.display = 'none';
   if (durSel) durSel.style.display = 'none';
+  if (styleSel) styleSel.style.display = 'none';
   if (chatInput) chatInput.placeholder = 'Ketik pesan untuk AI... (Enter untuk kirim, Shift+Enter untuk baris baru)';
   if (sendBtn) sendBtn.innerHTML = '<span>Kirim</span> <span>🚀</span>';
  } else if (mode === 'image') {
   if (mediaRow) mediaRow.style.display = 'flex';
   if (durSel) durSel.style.display = 'none';
+  if (styleSel) styleSel.style.display = 'inline-block';
   if (chatInput) chatInput.placeholder = 'Deskripsikan gambar yang ingin dibuat... (contoh: Kucing cyberpunk memakai kacamata neon di Tokyo)';
   if (sendBtn) sendBtn.innerHTML = '<span>Generate Gambar</span> <span>🎨</span>';
  } else if (mode === 'video') {
   if (mediaRow) mediaRow.style.display = 'flex';
+  if (styleSel) styleSel.style.display = 'none';
   if (durSel) durSel.style.display = 'inline-block';
   if (chatInput) chatInput.placeholder = 'Deskripsikan video yang ingin dibuat... (contoh: Seekor kucing lucu sedang menari di pantai saat sunset)';
   if (sendBtn) sendBtn.innerHTML = '<span>Generate Video</span> <span>🎬</span>';
@@ -803,50 +1055,176 @@ function updatePlaygroundModelsForMode() {
  if (!sel) return;
  const prevVal = sel.value;
  const currentAccId = document.getElementById('chatAccount') ? document.getElementById('chatAccount').value : '';
- const currentAcc = (window.allAccounts || []).find(a => a.id === currentAccId);
+ const currentAcc = (window.allAccounts || []).find(a => String(a.id) === String(currentAccId));
 
  sel.innerHTML = '';
  if (playgroundMode === 'chat') {
-  const models = (window.cachedModels && window.cachedModels.length > 0) ? window.cachedModels : ['gpt-5-6-instant', 'gpt-5-6', 'gemini-2.5-flash', 'claude-3-7-sonnet', 'auto'];
-  models.forEach(m => {
-   const opt = document.createElement('option');
-   opt.value = m;
-   opt.textContent = m;
-   sel.appendChild(opt);
-  });
-  if (prevVal && Array.from(sel.options).some(o => o.value === prevVal)) {
-   sel.value = prevVal;
+  if (currentAcc) {
+   let models = [];
+   const prov = (currentAcc.provider || '').toLowerCase();
+   if (prov === 'gemini') {
+    const raw = (currentAcc.availableModels && currentAcc.availableModels.length > 0)
+      ? currentAcc.availableModels
+      : ['gemini-4-argon', 'gemini-4-argon-high', 'gemini-4-argon-medium', 'gemini-4-argon-low', 'gemini-3.1-pro', 'gemini-3.8-flash', 'gemini-3.5-flash-lite', 'imagen-3', 'nano-banana', 'gemini-auto'];
+    models = raw.filter(m => {
+     const ml = m.toLowerCase();
+     return ml.includes('gemini') || ml.includes('argon') || ml.includes('pro') || ml.includes('flash') || ml.includes('imagen') || ml.includes('banana');
+    });
+   } else if (prov === 'chatgpt') {
+    const raw = (currentAcc.availableModels && currentAcc.availableModels.length > 0)
+      ? currentAcc.availableModels
+      : ['gpt-6-thinking', 'gpt-6', 'gpt-6-instant', 'gpt-5-6-thinking', 'gpt-5-6', 'gpt-4o', 'auto'];
+    models = raw.filter(m => {
+     const ml = m.toLowerCase();
+     return !ml.includes('gemini') && !ml.includes('argon') && !ml.includes('banana');
+    });
+   } else {
+    models = currentAcc.availableModels || ['auto'];
+   }
+
+   models.forEach(m => {
+    const opt = document.createElement('option');
+    opt.value = m;
+    opt.textContent = m;
+    sel.appendChild(opt);
+   });
+
+   if (prevVal && Array.from(sel.options).some(o => o.value === prevVal)) {
+    sel.value = prevVal;
+   } else if (prov === 'gemini') {
+    sel.value = models.includes('gemini-4-argon') ? 'gemini-4-argon' : (models.includes('gemini-3.1-pro') ? 'gemini-3.1-pro' : models[0]);
+   } else if (prov === 'chatgpt') {
+    sel.value = models.includes('gpt-6-thinking') ? 'gpt-6-thinking' : models[0];
+   }
+  } else {
+   // Auto Round-Robin: Group models cleanly by provider
+   const grpChatGPT = document.createElement('optgroup');
+   grpChatGPT.label = '🤖 ChatGPT / OpenAI Models';
+   const grpGemini = document.createElement('optgroup');
+   grpGemini.label = '✨ Google Gemini Models';
+
+   const all = (window.cachedModels && window.cachedModels.length > 0)
+     ? window.cachedModels
+     : ['gpt-6-thinking', 'gpt-6', 'gpt-5-6', 'gemini-4-argon', 'gemini-3.1-pro', 'auto'];
+
+   all.forEach(m => {
+    const opt = document.createElement('option');
+    opt.value = m;
+    opt.textContent = m;
+    const ml = m.toLowerCase();
+    if (ml.includes('gemini') || ml.includes('argon') || ml.includes('banana') || ml.includes('imagen')) {
+     grpGemini.appendChild(opt);
+    } else {
+     grpChatGPT.appendChild(opt);
+    }
+   });
+
+   if (grpChatGPT.children.length > 0) sel.appendChild(grpChatGPT);
+   if (grpGemini.children.length > 0) sel.appendChild(grpGemini);
+
+   if (prevVal && Array.from(sel.options).some(o => o.value === prevVal)) {
+    sel.value = prevVal;
+   } else {
+    sel.value = 'gpt-6-thinking';
+   }
   }
  } else if (playgroundMode === 'image') {
-  const imgModels = [
-   { id: 'imagen-3', name: 'imagen-3 (Gemini Imagen 3)' },
-   { id: 'imagen-3.0-generate-002', name: 'imagen-3.0-generate-002 (Gemini HQ)' },
-   { id: 'dall-e-3', name: 'dall-e-3 (ChatGPT HD)' },
-   { id: 'dall-e-2', name: 'dall-e-2 (Standard)' },
-   { id: 'auto', name: 'auto (Pilih Otomatis)' }
-  ];
+  let imgModels = [];
+  if (currentAcc && currentAcc.provider === 'chatgpt') {
+   imgModels = [
+    { id: 'gpt-6-thinking', name: 'gpt-6-thinking (Flagship Realistis & Cerdas ⭐)' },
+    { id: 'gpt-5-6-thinking', name: 'gpt-5-6-thinking (GPT-5.6 Sol Thinking)' },
+    { id: 'gpt-5-6', name: 'gpt-5-6 (GPT-5.6 Sol Standard)' },
+    { id: 'dall-e-3', name: 'dall-e-3 (DALL-E 3 Direct)' },
+    { id: 'auto', name: 'auto (Pilih Otomatis)' }
+   ];
+  } else if (currentAcc && currentAcc.provider === 'gemini') {
+   imgModels = [
+    { id: 'imagen-3', name: 'imagen-3 (Imagen 3 - Gemini HD ⭐)' },
+    { id: 'nano-banana', name: 'nano-banana (Nano Banana - Visual Image Pipeline)' },
+    { id: 'gemini-4-argon', name: 'gemini-4-argon (4 Argon - Multimodal Visual)' },
+    { id: 'imagen-3.0-generate-002', name: 'imagen-3.0-generate-002 (Gemini HQ Direct)' },
+    { id: 'auto', name: 'auto (Pilih Otomatis)' }
+   ];
+  } else {
+   // Auto Round-Robin Image: cleanly grouped by provider
+   const grpChatGPT = document.createElement('optgroup');
+   grpChatGPT.label = '🤖 OpenAI / ChatGPT Image Models';
+   const grpGemini = document.createElement('optgroup');
+   grpGemini.label = '✨ Google Gemini Image Models';
+
+   [
+    { id: 'gpt-6-thinking', name: 'gpt-6-thinking (ChatGPT Flagship High-Res ⭐)' },
+    { id: 'dall-e-3', name: 'dall-e-3 (DALL-E 3 Direct)' }
+   ].forEach(m => {
+    const opt = document.createElement('option');
+    opt.value = m.id;
+    opt.textContent = m.name;
+    grpChatGPT.appendChild(opt);
+   });
+
+   [
+    { id: 'imagen-3', name: 'imagen-3 (Imagen 3 - Gemini HD ⭐)' },
+    { id: 'nano-banana', name: 'nano-banana (Nano Banana - Visual Image Pipeline)' },
+    { id: 'gemini-4-argon', name: 'gemini-4-argon (4 Argon Visual)' }
+   ].forEach(m => {
+    const opt = document.createElement('option');
+    opt.value = m.id;
+    opt.textContent = m.name;
+    grpGemini.appendChild(opt);
+   });
+
+   sel.appendChild(grpChatGPT);
+   sel.appendChild(grpGemini);
+   const optAuto = document.createElement('option');
+   optAuto.value = 'auto';
+   optAuto.textContent = 'auto (Pilih Otomatis)';
+   sel.appendChild(optAuto);
+
+   if (prevVal && Array.from(sel.options).some(o => o.value === prevVal)) {
+    sel.value = prevVal;
+   } else {
+    sel.value = 'gpt-6-thinking';
+   }
+   return;
+  }
+
   imgModels.forEach(m => {
    const opt = document.createElement('option');
    opt.value = m.id;
    opt.textContent = m.name;
    sel.appendChild(opt);
   });
-  if (currentAcc && currentAcc.provider === 'gemini') {
+  if (currentAcc && currentAcc.provider === 'chatgpt') {
+   sel.value = 'gpt-6-thinking';
+  } else if (currentAcc && currentAcc.provider === 'gemini') {
    sel.value = 'imagen-3';
-  } else if (currentAcc && currentAcc.provider === 'chatgpt') {
-   sel.value = 'dall-e-3';
   } else if (prevVal && Array.from(sel.options).some(o => o.value === prevVal)) {
    sel.value = prevVal;
   }
  } else if (playgroundMode === 'video') {
-  const vidModels = [
-   { id: 'veo-2', name: 'veo-2 (Google Veo / Gemini Video)' },
-   { id: 'gemini-video', name: 'gemini-video (Gemini Cinematic)' },
-   { id: 'sora', name: 'sora (OpenAI Video)' },
-   { id: 'runway-gen-3', name: 'runway-gen-3 (Runway Alpha)' },
-   { id: 'kling-v1.5', name: 'kling-v1.5 (Kling AI)' },
-   { id: 'luma-ray-2', name: 'luma-ray-2 (Dream Machine)' }
-  ];
+  let vidModels = [];
+  if (currentAcc && currentAcc.provider === 'gemini') {
+   vidModels = [
+    { id: 'veo-2', name: 'veo-2 (Google Veo 2 / Gemini Cinematic ⭐)' },
+    { id: 'gemini-video', name: 'gemini-video (Gemini Cinematic)' },
+    { id: 'auto', name: 'auto (Pilih Otomatis)' }
+   ];
+  } else if (currentAcc && currentAcc.provider === 'chatgpt') {
+   vidModels = [
+    { id: 'sora', name: 'sora (OpenAI Sora Video ⭐)' },
+    { id: 'auto', name: 'auto (Pilih Otomatis)' }
+   ];
+  } else {
+   vidModels = [
+    { id: 'veo-2', name: 'veo-2 (Google Veo / Gemini Video)' },
+    { id: 'sora', name: 'sora (OpenAI Video)' },
+    { id: 'runway-gen-3', name: 'runway-gen-3 (Runway Alpha)' },
+    { id: 'kling-v1.5', name: 'kling-v1.5 (Kling AI)' },
+    { id: 'luma-ray-2', name: 'luma-ray-2 (Dream Machine)' },
+    { id: 'auto', name: 'auto (Pilih Otomatis)' }
+   ];
+  }
   vidModels.forEach(m => {
    const opt = document.createElement('option');
    opt.value = m.id;
@@ -855,13 +1233,206 @@ function updatePlaygroundModelsForMode() {
   });
   if (currentAcc && currentAcc.provider === 'gemini') {
    sel.value = 'veo-2';
+  } else if (currentAcc && currentAcc.provider === 'chatgpt') {
+   sel.value = 'sora';
   } else if (prevVal && Array.from(sel.options).some(o => o.value === prevVal)) {
    sel.value = prevVal;
   }
  }
+
+ const switcher = document.getElementById('geminiSwitcher');
+ const cgptSwitcher = document.getElementById('chatgptEffortSwitcher');
+ const activeProv = currentAcc ? (currentAcc.provider || '').toLowerCase() : '';
+
+ if (playgroundMode === 'chat' && activeProv === 'gemini') {
+  if (switcher) switcher.style.display = 'inline-block';
+  if (cgptSwitcher) cgptSwitcher.style.display = 'none';
+  sel.style.display = 'none';
+  syncGeminiMenuState();
+ } else if (playgroundMode === 'chat' && activeProv === 'chatgpt') {
+  if (switcher) switcher.style.display = 'none';
+  if (cgptSwitcher) cgptSwitcher.style.display = 'inline-block';
+  sel.style.display = 'inline-block';
+  syncChatGPTEffortState();
+ } else {
+  if (switcher) switcher.style.display = 'none';
+  if (cgptSwitcher) cgptSwitcher.style.display = 'none';
+  sel.style.display = 'inline-block';
+ }
 }
 
+function syncGeminiMenuState() {
+ const sel = document.getElementById('chatModel');
+ if (!sel) return;
+ const val = (sel.value || 'gemini-4-argon').toLowerCase();
+
+ ['check_35', 'check_38', 'check_31', 'check_4', 'check_r_low', 'check_r_med', 'check_r_high'].forEach(id => {
+  const el = document.getElementById(id);
+  if (el) el.textContent = '';
+ });
+
+ const labelEl = document.getElementById('geminiActiveModelLabel');
+
+ if (val.includes('3.5-flash-lite') || val.includes('flash-lite')) {
+  if (document.getElementById('check_35')) document.getElementById('check_35').textContent = '✓';
+  if (labelEl) labelEl.textContent = '3.5 Flash-Lite';
+ } else if (val.includes('3.8-flash')) {
+  if (document.getElementById('check_38')) document.getElementById('check_38').textContent = '✓';
+  if (labelEl) labelEl.textContent = '3.8 Flash';
+ } else if (val.includes('3.1-pro')) {
+  if (document.getElementById('check_31')) document.getElementById('check_31').textContent = '✓';
+  if (labelEl) labelEl.textContent = '3.1 Pro';
+ } else {
+  if (document.getElementById('check_4')) document.getElementById('check_4').textContent = '✓';
+  if (val.includes('low') || val.includes('rendah')) {
+   if (document.getElementById('check_r_low')) document.getElementById('check_r_low').textContent = '✓';
+   if (labelEl) labelEl.textContent = '4 Argon (Rendah)';
+  } else if (val.includes('medium') || val.includes('sedang')) {
+   if (document.getElementById('check_r_med')) document.getElementById('check_r_med').textContent = '✓';
+   if (labelEl) labelEl.textContent = '4 Argon (Sedang)';
+  } else if (val.includes('high') || val.includes('tinggi')) {
+   if (document.getElementById('check_r_high')) document.getElementById('check_r_high').textContent = '✓';
+   if (labelEl) labelEl.textContent = '4 Argon (Tinggi)';
+  } else {
+   if (document.getElementById('check_r_high')) document.getElementById('check_r_high').textContent = '✓';
+   if (labelEl) labelEl.textContent = '4 Argon';
+  }
+ }
+}
+
+function selectGeminiModel(modelId, label, reasoning) {
+ const sel = document.getElementById('chatModel');
+ if (sel) {
+  let exists = false;
+  for (let i = 0; i < sel.options.length; i++) {
+   if (sel.options[i].value === modelId) {
+    exists = true;
+    break;
+   }
+  }
+  if (!exists) {
+   const opt = document.createElement('option');
+   opt.value = modelId;
+   opt.textContent = modelId;
+   sel.appendChild(opt);
+  }
+  sel.value = modelId;
+ }
+ syncGeminiMenuState();
+ closeGeminiMenu();
+}
+
+function toggleGeminiMenu(e) {
+ if (e) e.stopPropagation();
+ const menu = document.getElementById('geminiMenu');
+ if (!menu) return;
+ menu.classList.toggle('show');
+}
+
+function closeGeminiMenu() {
+ const menu = document.getElementById('geminiMenu');
+ if (menu) menu.classList.remove('show');
+}
+
+function syncChatGPTEffortState() {
+ const sel = document.getElementById('chatModel');
+ if (!sel) return;
+ const val = (sel.value || '').toLowerCase();
+ const range = document.getElementById('cgptEffortRange');
+ const label = document.getElementById('cgptEffortLabel');
+
+ if (val.includes('instant') || val.includes('low')) {
+  if (range) range.value = 0;
+  if (label) label.textContent = 'Instant (Low)';
+ } else if (val.includes('thinking') || val.includes('high')) {
+  if (range) range.value = 2;
+  if (label) label.textContent = 'High';
+ } else {
+  if (range) range.value = 1;
+  if (label) label.textContent = 'Medium';
+ }
+}
+
+function onChatGPTEffortSlide(step) {
+ step = parseInt(step, 10);
+ const range = document.getElementById('cgptEffortRange');
+ if (range) range.value = step;
+ const label = document.getElementById('cgptEffortLabel');
+ const sel = document.getElementById('chatModel');
+ if (!sel) return;
+
+ const currentVal = (sel.value || 'gpt-6-thinking').toLowerCase();
+ let base = 'gpt-6';
+ if (currentVal.includes('5-6')) {
+  base = 'gpt-5-6';
+ }
+
+ let target = base;
+ if (step === 0) {
+  target = base + '-instant';
+  if (label) label.textContent = 'Instant (Low)';
+ } else if (step === 1) {
+  target = base;
+  if (label) label.textContent = 'Medium';
+ } else {
+  target = base + '-thinking';
+  if (label) label.textContent = 'High';
+ }
+
+ let exists = false;
+ for (let i = 0; i < sel.options.length; i++) {
+  if (sel.options[i].value === target) {
+   exists = true;
+   break;
+  }
+ }
+ if (!exists) {
+  const opt = document.createElement('option');
+  opt.value = target;
+  opt.textContent = target;
+  sel.appendChild(opt);
+ }
+ sel.value = target;
+}
+
+function cycleChatGPTEffort() {
+ const range = document.getElementById('cgptEffortRange');
+ if (!range) return;
+ const cur = parseInt(range.value, 10);
+ const next = (cur + 1) % 3;
+ onChatGPTEffortSlide(next);
+}
+
+function toggleChatGPTEffortMenu(e) {
+ if (e) e.stopPropagation();
+ const menu = document.getElementById('chatgptEffortMenu');
+ if (!menu) return;
+ menu.classList.toggle('show');
+}
+
+function closeChatGPTEffortMenu() {
+ const menu = document.getElementById('chatgptEffortMenu');
+ if (menu) menu.classList.remove('show');
+}
+
+document.addEventListener('click', function(e) {
+ const wrap = document.getElementById('geminiSwitcher');
+ if (wrap && !wrap.contains(e.target)) {
+  closeGeminiMenu();
+ }
+ const cgptWrap = document.getElementById('chatgptEffortSwitcher');
+ if (cgptWrap && !cgptWrap.contains(e.target)) {
+  closeChatGPTEffortMenu();
+ }
+});
+
 function onPlaygroundAccountChanged() {
+ const sel = document.getElementById('chatAccount');
+ if (sel) {
+  try {
+   localStorage.setItem('selectedPlaygroundAccount', sel.value);
+  } catch(e){}
+ }
  updatePlaygroundModelsForMode();
 }
 
@@ -934,6 +1505,8 @@ function updateChatTurnsBadge() {
 
 function clearTestChat() {
  chatHistory = [];
+ window.attachedImages = [];
+ renderAttachmentBar();
  const msgs = document.getElementById('chatMessages');
  if (msgs) {
   msgs.innerHTML = '<div class="chat-empty-state" id="chatEmptyState">' +
@@ -979,6 +1552,8 @@ function closeLightbox(e) {
 
 function renderMarkdown(text) {
  if (!text) return '';
+
+ text = text.replace(/https?:\/\/googleusercontent\.com\/(?:image_generation_content|lmdx_content)\/[^\s]+/g, '').trim();
 
  const codeBlocks = [];
  let processed = text.replace(new RegExp('\\x60{3}([a-zA-Z0-9_-]*)\\n([\\s\\S]*?)\\x60{3}', 'g'), function(match, lang, code) {
@@ -1053,12 +1628,79 @@ function renderMarkdown(text) {
  return processed;
 }
 
+window.attachedImages = [];
+
+function onFilesSelected(event) {
+  const files = event.target.files;
+  if (!files || files.length === 0) return;
+  for (let i = 0; i < files.length; i++) {
+    const file = files[i];
+    if (!file.type.startsWith('image/')) continue;
+    const reader = new FileReader();
+    reader.onload = function(e) {
+      addImageAttachment(e.target.result, file.name);
+    };
+    reader.readAsDataURL(file);
+  }
+  event.target.value = '';
+}
+
+function addImageAttachment(dataUrl, name) {
+  window.attachedImages.push({ dataUrl, name: name || 'image.png' });
+  renderAttachmentBar();
+}
+
+function removeAttachment(index) {
+  window.attachedImages.splice(index, 1);
+  renderAttachmentBar();
+}
+
+function renderAttachmentBar() {
+  const bar = document.getElementById('imageAttachmentPreviewBar');
+  if (!bar) return;
+  if (window.attachedImages.length === 0) {
+    bar.style.display = 'none';
+    bar.innerHTML = '';
+    return;
+  }
+  bar.style.display = 'flex';
+  bar.innerHTML = window.attachedImages.map(function(att, i) {
+    return '<div style="display:flex;align-items:center;gap:8px;background:#1e293b;border:1px solid #475569;border-radius:6px;padding:4px 8px;font-size:0.78rem;color:#e2e8f0">' +
+      '<img src="' + att.dataUrl + '" style="width:34px;height:34px;object-fit:cover;border-radius:4px;border:1px solid #334155" />' +
+      '<span style="max-width:130px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + escapeHtml(att.name) + '</span>' +
+      '<button onclick="removeAttachment(' + i + ')" style="background:none;border:none;color:#f87171;font-weight:bold;cursor:pointer;padding:0 4px;font-size:1rem" title="Hapus gambar">✕</button>' +
+    '</div>';
+  }).join('') + '<span style="font-size:0.75rem;color:#38bdf8;margin-left:auto">' + window.attachedImages.length + ' gambar (' + (playgroundMode === 'image' ? '🖼️ Img2Img' : '👁️ Vision') + ')</span>';
+}
+
+// Global paste listener for screenshot clipboard
+window.addEventListener('paste', function(e) {
+  const items = (e.clipboardData || e.originalEvent?.clipboardData)?.items;
+  if (!items) return;
+  for (let i = 0; i < items.length; i++) {
+    const item = items[i];
+    if (item.kind === 'file' && item.type.startsWith('image/')) {
+      const blob = item.getAsFile();
+      const reader = new FileReader();
+      reader.onload = function(event) {
+        addImageAttachment(event.target.result, 'screenshot_' + Date.now().toString().slice(-4) + '.png');
+        toast('Screenshot clipboard terlampir 📎', 'success');
+      };
+      reader.readAsDataURL(blob);
+    }
+  }
+});
+
 async function sendTestChat() {
  const input = document.getElementById('chatInput');
  const text = input.value.trim();
  const model = document.getElementById('chatModel').value;
  const accId = document.getElementById('chatAccount') ? document.getElementById('chatAccount').value : '';
- if (!text) { toast('Ketik pesan / prompt terlebih dahulu', 'error'); return; }
+ if (!text && window.attachedImages.length === 0) { toast('Ketik pesan atau lampirkan gambar terlebih dahulu', 'error'); return; }
+
+ const currentAttachments = [...window.attachedImages];
+ window.attachedImages = [];
+ renderAttachmentBar();
 
  const emptyState = document.getElementById('chatEmptyState');
  if (emptyState) emptyState.remove();
@@ -1068,16 +1710,23 @@ async function sendTestChat() {
  const statusText = document.getElementById('chatStatusText');
  const timeStr = new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
 
+ let attachedImgsHtml = '';
+ if (currentAttachments.length > 0) {
+   attachedImgsHtml = '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">' +
+     currentAttachments.map(att => '<img src="' + att.dataUrl + '" style="max-width:180px;max-height:180px;border-radius:6px;border:1px solid #334155;object-fit:cover" />').join('') +
+     '</div>';
+ }
+
  const userAvatar = playgroundMode === 'video' ? '🎬' : (playgroundMode === 'image' ? '🎨' : 'U');
  const userRow = document.createElement('div');
  userRow.className = 'chat-message-row user';
  userRow.innerHTML = '<div class="chat-avatar user">' + userAvatar + '</div>' +
   '<div class="chat-bubble-container">' +
    '<div class="chat-bubble-meta">' +
-    '<span>Anda (' + (playgroundMode === 'video' ? 'Video Prompt' : (playgroundMode === 'image' ? 'Image Prompt' : 'Chat')) + ')</span>' +
+    '<span>Anda (' + (playgroundMode === 'video' ? 'Video Prompt' : (playgroundMode === 'image' ? (currentAttachments.length > 0 ? 'Img2Img Edit' : 'Image Prompt') : (currentAttachments.length > 0 ? 'Vision Chat' : 'Chat'))) + ')</span>' +
     '<span class="chat-meta-time">' + timeStr + '</span>' +
    '</div>' +
-   '<div class="chat-bubble">' + renderMarkdown(text) + '</div>' +
+   '<div class="chat-bubble">' + attachedImgsHtml + renderMarkdown(text || '(Gambar Terlampir)') + '</div>' +
   '</div>';
  messagesContainer.appendChild(userRow);
 
@@ -1088,7 +1737,7 @@ async function sendTestChat() {
  const loadingId = 'loading_' + Date.now();
  const assistAvatar = playgroundMode === 'video' ? '🎬' : (playgroundMode === 'image' ? '🎨' : '✨');
  const loadingText = playgroundMode === 'video' ? 'Sedang merender &amp; streaming video MP4 (Zero-Disk RAM)...' :
-                     (playgroundMode === 'image' ? 'Sedang membuat gambar (Zero-Disk Memory Stream)...' : 'Sedang berpikir &amp; menyusun respon...');
+                     (playgroundMode === 'image' ? (currentAttachments.length > 0 ? 'Sedang mengedit gambar Image-to-Image (Zero-Disk RAM Stream)...' : 'Sedang membuat gambar (Zero-Disk Memory Stream)...') : 'Sedang berpikir &amp; menyusun respon...');
 
  const loadingRow = document.createElement('div');
  loadingRow.className = 'chat-message-row assistant';
@@ -1117,15 +1766,19 @@ async function sendTestChat() {
    let size = "1024x1024";
    if (aspect === "16:9") size = "1792x1024";
    else if (aspect === "9:16") size = "1024x1792";
+   const style = document.getElementById('mediaStyle') ? document.getElementById('mediaStyle').value : 'none';
 
    const r = await fetch(API + '/v1/images/generations', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({
-     prompt: text,
+     prompt: text || 'Enhance and recreate this image with high aesthetic fidelity',
      model: model,
      account_id: accId || undefined,
      size: size,
+     style: style,
+     attachments: currentAttachments.map(a => a.dataUrl),
+     image: currentAttachments.length > 0 ? currentAttachments[0].dataUrl : undefined,
      response_format: 'url'
     })
    });
@@ -1238,8 +1891,17 @@ async function sendTestChat() {
    }
 
   } else {
-   // Normal Chat Mode
-   chatHistory.push({role: 'user', content: text});
+   // Normal Chat Mode (with Vision Multimodal Support)
+   let userMessageContent;
+   if (currentAttachments.length > 0) {
+     userMessageContent = currentAttachments.map(function(a) {
+       return { type: 'image_url', image_url: { url: a.dataUrl } };
+     });
+     userMessageContent.push({ type: 'text', text: text || 'Please inspect and analyze this attached image in detail.' });
+   } else {
+     userMessageContent = text;
+   }
+   chatHistory.push({role: 'user', content: userMessageContent});
    updateChatTurnsBadge();
 
    if (statusText) statusText.textContent = '⏳ Mengirim ke /v1/chat/completions (' + model + ')...';

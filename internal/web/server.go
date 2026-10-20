@@ -1,6 +1,7 @@
 package web
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/base64"
@@ -11,6 +12,7 @@ import (
 	"log"
 	"net/http"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 
@@ -18,6 +20,7 @@ import (
 	"cookie-router/internal/media"
 	"cookie-router/internal/models"
 	"cookie-router/internal/providers"
+	"cookie-router/internal/utils"
 )
 
 func generateUUID() string {
@@ -34,6 +37,7 @@ type Server struct {
 func NewServer(cfgMgr *config.Manager) *Server {
 	s := &Server{cfgMgr: cfgMgr, mux: http.NewServeMux()}
 	s.registerRoutes()
+	go s.backfillAccountProfiles()
 	return s
 }
 
@@ -45,7 +49,7 @@ func (s *Server) corsMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With, OpenAI-Beta, Accept, *")
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusOK)
 			return
@@ -56,8 +60,10 @@ func (s *Server) corsMiddleware(next http.Handler) http.Handler {
 
 func (s *Server) authMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Dashboard and static files are always accessible
-		if strings.HasPrefix(r.URL.Path, "/dashboard") || r.URL.Path == "/" || r.URL.Path == "/favicon.ico" {
+		// Dashboard, static files, and media previews are always accessible
+		if strings.HasPrefix(r.URL.Path, "/dashboard") || r.URL.Path == "/" || r.URL.Path == "/favicon.ico" ||
+			strings.HasPrefix(r.URL.Path, "/v1/images/") || strings.HasPrefix(r.URL.Path, "/v1/videos/") ||
+			strings.HasPrefix(r.URL.Path, "/api/media/") {
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -89,6 +95,7 @@ func (s *Server) registerRoutes() {
 
 	// Management API
 	s.mux.HandleFunc("/api/config", s.handleConfig)
+	s.mux.HandleFunc("/api/accounts/probe", s.handleProbeAccount)
 	s.mux.HandleFunc("/api/accounts", s.handleAccounts)
 	s.mux.HandleFunc("/api/accounts/", s.handleAccountByID)
 	s.mux.HandleFunc("/api/accounts/test/", s.handleTestAccount)
@@ -99,6 +106,7 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("/v1/models", s.handleModels)
 	s.mux.HandleFunc("/v1/chat/completions", s.handleChatCompletions)
 	s.mux.HandleFunc("/v1/images/generations", s.handleImageGenerations)
+	s.mux.HandleFunc("/v1/images/edits", s.handleImageEdits)
 	s.mux.HandleFunc("/api/images/generate", s.handleImageGenerations)
 	s.mux.HandleFunc("/v1/images/", s.handleImageProxy)
 	s.mux.HandleFunc("/v1/videos/generations", s.handleVideoGenerations)
@@ -135,6 +143,8 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 				"id":              a.ID,
 				"provider":        a.Provider,
 				"name":            a.Name,
+				"email":           a.Email,
+				"plan":            a.Plan,
 				"defaultModel":    a.DefaultModel,
 				"availableModels": a.AvailableModels,
 				"enabled":         a.Enabled,
@@ -180,6 +190,8 @@ func (s *Server) handleAccounts(w http.ResponseWriter, r *http.Request) {
 				"id":              a.ID,
 				"provider":        a.Provider,
 				"name":            a.Name,
+				"email":           a.Email,
+				"plan":            a.Plan,
 				"defaultModel":    a.DefaultModel,
 				"availableModels": a.AvailableModels,
 				"enabled":         a.Enabled,
@@ -200,6 +212,34 @@ func (s *Server) handleAccounts(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "provider and cookie are required"})
 			return
 		}
+
+		// Auto-detect profile / email if not supplied
+		if acc.Email == "" || acc.Plan == "" {
+			if p := providers.Get(acc.Provider); p != nil {
+				if detector, ok := p.(providers.AccountInfoDetector); ok {
+					ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+					if info, err := detector.DetectAccountInfo(ctx, acc.Cookie); err == nil && info != nil {
+						if acc.Email == "" {
+							acc.Email = info.Email
+						}
+						if acc.Plan == "" {
+							acc.Plan = info.Plan
+						}
+					}
+					cancel()
+				}
+			}
+			if acc.Email == "" {
+				acc.Email = utils.ExtractEmailFromRaw(acc.Cookie)
+			}
+		}
+
+		if acc.Name == "" || acc.Name == acc.Provider {
+			if acc.Email != "" {
+				acc.Name = acc.Email
+			}
+		}
+
 		if err := s.cfgMgr.AddAccount(&acc); err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 			return
@@ -298,11 +338,107 @@ func (s *Server) handleTestAccount(w http.ResponseWriter, r *http.Request) {
 		s.cfgMgr.SetAccountModels(id, models)
 	}
 
+	// Also detect profile info upon successful test
+	if detector, ok := provider.(providers.AccountInfoDetector); ok {
+		if info, err := detector.DetectAccountInfo(ctx, target.Cookie); err == nil && info != nil {
+			s.cfgMgr.SetAccountProfile(id, info.Email, info.Plan)
+			target.Email = info.Email
+			target.Plan = info.Plan
+		}
+	} else if target.Email == "" {
+		if em := utils.ExtractEmailFromRaw(target.Cookie); em != "" {
+			s.cfgMgr.SetAccountProfile(id, em, "")
+			target.Email = em
+		}
+	}
+
 	s.cfgMgr.SetAccountStatus(id, "active", "")
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"status": "active",
 		"models": models,
+		"email":  target.Email,
+		"plan":   target.Plan,
 	})
+}
+
+func (s *Server) handleProbeAccount(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+
+	var body struct {
+		Provider string `json:"provider"`
+		Cookie   string `json:"cookie"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+
+	if body.Cookie == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "cookie is required"})
+		return
+	}
+
+	normCookie := utils.NormalizeCookie(body.Cookie, body.Provider)
+	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
+	defer cancel()
+
+	resp := map[string]interface{}{
+		"status":   "ok",
+		"provider": body.Provider,
+	}
+
+	if p := providers.Get(body.Provider); p != nil {
+		if detector, ok := p.(providers.AccountInfoDetector); ok {
+			info, err := detector.DetectAccountInfo(ctx, normCookie)
+			if err == nil && info != nil {
+				resp["email"] = info.Email
+				resp["name"] = info.Name
+				resp["plan"] = info.Plan
+			} else if err != nil {
+				resp["error"] = err.Error()
+			}
+		}
+		defModels := p.DefaultModels()
+		if len(defModels) > 0 {
+			resp["defaultModel"] = defModels[0]
+		}
+	}
+
+	if resp["email"] == nil || resp["email"] == "" {
+		if em := utils.ExtractEmailFromRaw(normCookie); em != "" {
+			resp["email"] = em
+		} else if em := utils.ExtractEmailFromRaw(body.Cookie); em != "" {
+			resp["email"] = em
+		}
+	}
+
+	writeJSON(w, http.StatusOK, resp)
+}
+
+func (s *Server) backfillAccountProfiles() {
+	time.Sleep(1 * time.Second)
+	cfg := s.cfgMgr.GetConfig()
+	for _, a := range cfg.Accounts {
+		if a.Email == "" && a.Cookie != "" {
+			if p := providers.Get(a.Provider); p != nil {
+				if detector, ok := p.(providers.AccountInfoDetector); ok {
+					ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+					if info, err := detector.DetectAccountInfo(ctx, a.Cookie); err == nil && info != nil && info.Email != "" {
+						s.cfgMgr.SetAccountProfile(a.ID, info.Email, info.Plan)
+					}
+					cancel()
+				}
+			}
+			if a.Email == "" {
+				if em := utils.ExtractEmailFromRaw(a.Cookie); em != "" {
+					s.cfgMgr.SetAccountProfile(a.ID, em, "")
+				}
+			}
+		}
+	}
 }
 
 func (s *Server) handleDetectAccountModels(w http.ResponseWriter, r *http.Request) {
@@ -758,6 +894,19 @@ func (s *Server) handleImageProxy(w http.ResponseWriter, r *http.Request) {
 		cancel()
 
 		if err == nil && len(imgBytes) > 0 {
+			// Cache in Zero-Disk RAM buffer for instant subsequent views & gallery
+			media.GetManager().Store(&media.MediaItem{
+				ID:          fileID,
+				Type:        "image",
+				ContentType: "image/png",
+				Data:        imgBytes,
+				Prompt:      "ChatGPT Generated Image",
+				Model:       "gpt-6-thinking",
+				Provider:    "chatgpt",
+				AccountName: a.Name,
+				CreatedAt:   time.Now(),
+			})
+
 			w.Header().Set("Content-Type", "image/png")
 			if r.URL.Query().Get("download") == "1" {
 				w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s.png"`, fileID))
@@ -824,7 +973,7 @@ func (s *Server) handleImageGenerations(w http.ResponseWriter, r *http.Request) 
 
 	if len(candidates) == 0 {
 		targetModel := strings.ToLower(req.Model)
-		if strings.Contains(targetModel, "gemini") || strings.Contains(targetModel, "imagen") {
+		if strings.Contains(targetModel, "gemini") || strings.Contains(targetModel, "imagen") || strings.Contains(targetModel, "banana") || strings.Contains(targetModel, "argon") {
 			for _, a := range s.cfgMgr.GetConfig().Accounts {
 				if a.Enabled && a.Provider == "gemini" {
 					copyA := *a
@@ -841,7 +990,12 @@ func (s *Server) handleImageGenerations(w http.ResponseWriter, r *http.Request) 
 		}
 
 		if len(candidates) == 0 {
-			candidates = s.cfgMgr.FindCandidateAccounts("auto")
+			for _, a := range s.cfgMgr.GetConfig().Accounts {
+				if a.Enabled {
+					copyA := *a
+					candidates = append(candidates, &copyA)
+				}
+			}
 		}
 	}
 
@@ -851,6 +1005,16 @@ func (s *Server) handleImageGenerations(w http.ResponseWriter, r *http.Request) 
 		})
 		return
 	}
+
+	// Sort candidates: Plus / Pro accounts FIRST
+	sort.SliceStable(candidates, func(i, j int) bool {
+		isPlusI := strings.EqualFold(candidates[i].Plan, "plus") || strings.EqualFold(candidates[i].Plan, "pro") || strings.EqualFold(candidates[i].Plan, "team")
+		isPlusJ := strings.EqualFold(candidates[j].Plan, "plus") || strings.EqualFold(candidates[j].Plan, "pro") || strings.EqualFold(candidates[j].Plan, "team")
+		if isPlusI && !isPlusJ {
+			return true
+		}
+		return false
+	})
 
 	ctx, cancel := context.WithTimeout(r.Context(), 180*time.Second)
 	defer cancel()
@@ -865,6 +1029,23 @@ func (s *Server) handleImageGenerations(w http.ResponseWriter, r *http.Request) 
 	}
 
 	var lastErr error
+
+	styleDirective := ""
+	if req.Style != "" && req.Style != "none" {
+		switch strings.ToLower(req.Style) {
+		case "flare":
+			styleDirective = " dengan gaya visual Flare, pencahayaan sinematik hangat lembut berkarakter."
+		case "sunburst":
+			styleDirective = " dengan efek Sunburst sinar matahari dramatis dan radiant warmth."
+		case "vibrant":
+			styleDirective = " dengan warna cerah kontras tinggi (vibrant cinematic)."
+		case "natural":
+			styleDirective = " dengan gaya fotorealistik natural detail tajam autentik."
+		default:
+			styleDirective = fmt.Sprintf(" gaya %s.", req.Style)
+		}
+	}
+
 	for i, account := range candidates {
 		provider := providers.Get(account.Provider)
 		if provider == nil {
@@ -873,11 +1054,118 @@ func (s *Server) handleImageGenerations(w http.ResponseWriter, r *http.Request) 
 
 		log.Printf("[IMAGE GEN] Account %d/%d: %s (%s) prompt: %q", i+1, len(candidates), account.Name, account.Provider, req.Prompt)
 
-		imagePrompt := "Please generate a high quality image: " + req.Prompt
+		var imgs []string
+		seenImg := make(map[string]bool)
+		addImg := func(u string) {
+			u = strings.TrimSpace(u)
+			if u != "" && !seenImg[u] {
+				seenImg[u] = true
+				imgs = append(imgs, u)
+			}
+		}
+		if req.Image != "" {
+			addImg(req.Image)
+		}
+		for _, att := range req.Attachments {
+			addImg(att)
+		}
+
+		cleanPrompt := strings.TrimSpace(req.Prompt)
+		lowerPrompt := strings.ToLower(cleanPrompt)
+
+		// Ensure prompt explicitly triggers image creation tool in conversational models (ChatGPT Plus)
+		hasExplicitCommand := strings.HasPrefix(lowerPrompt, "buat gambar") ||
+			strings.HasPrefix(lowerPrompt, "buatkan gambar") ||
+			strings.HasPrefix(lowerPrompt, "buat ") ||
+			strings.HasPrefix(lowerPrompt, "buatkan ") ||
+			strings.HasPrefix(lowerPrompt, "generate image") ||
+			strings.HasPrefix(lowerPrompt, "create image") ||
+			strings.HasPrefix(lowerPrompt, "draw ") ||
+			strings.HasPrefix(lowerPrompt, "lukis ") ||
+			strings.HasPrefix(lowerPrompt, "ubah ") ||
+			strings.HasPrefix(lowerPrompt, "jadikan ") ||
+			strings.HasPrefix(lowerPrompt, "ganti ")
+
+		finalPrompt := cleanPrompt
+		if len(imgs) == 0 && !hasExplicitCommand {
+			finalPrompt = "Buatkan gambar: " + cleanPrompt
+		}
+
+		// Strip any aspect ratio suffix from user prompt to keep the prompt clean
+		// ChatGPT image_gen.text2im reacts to exact wording
+		aspectSuffixes := []string{
+			"(rasio aspek landscape 16:9)",
+			"(rasio aspek portrait tegak 9:16)",
+			"(rasio aspek landscape)",
+			"(rasio aspek portrait)",
+		}
+		for _, suf := range aspectSuffixes {
+			finalPrompt = strings.TrimSpace(strings.ReplaceAll(finalPrompt, suf, ""))
+		}
+
+		// Pass aspect ratio directive explicitly so ChatGPT DALL-E 3 configures orientation
+		aspectDirective := ""
+		if req.Size == "1024x1792" {
+			aspectDirective = " dengan orientasi portrait vertikal (rasio aspek 9:16)."
+		} else if req.Size == "1792x1024" {
+			aspectDirective = " dengan orientasi landscape mendatar (rasio aspek 16:9)."
+		} else if req.Size == "1024x1024" {
+			aspectDirective = " dengan orientasi persegi (rasio aspek 1:1)."
+		}
+
+		imagePrompt := finalPrompt + styleDirective + aspectDirective
+
+		var userContent interface{} = imagePrompt
+		if len(imgs) > 0 {
+			var parts []interface{}
+			for _, img := range imgs {
+				parts = append(parts, map[string]interface{}{
+					"type": "image_url",
+					"image_url": map[string]interface{}{
+						"url": img,
+					},
+				})
+			}
+			parts = append(parts, map[string]interface{}{
+				"type": "text",
+				"text": imagePrompt,
+			})
+			userContent = parts
+		}
+
+		// Pick the best model for image generation
+		modelToUse := req.Model
+		if account.Provider == "chatgpt" {
+			hasModel := func(m string) bool {
+				for _, am := range account.AvailableModels {
+					if am == m {
+						return true
+					}
+				}
+				return false
+			}
+			if modelToUse == "" || modelToUse == "auto" || modelToUse == "dall-e-3" || modelToUse == "dall-e-2" || modelToUse == "gpt-image-2" {
+				if hasModel("gpt-6-thinking") {
+					modelToUse = "gpt-6-thinking"
+				} else if hasModel("gpt-5-6-thinking") {
+					modelToUse = "gpt-5-6-thinking"
+				} else if hasModel("gpt-5-6") {
+					modelToUse = "gpt-5-6"
+				} else {
+					modelToUse = "auto"
+				}
+			}
+		} else if account.Provider == "gemini" {
+			modelToUse = "imagen-3"
+		}
+		if modelToUse == "" {
+			modelToUse = "auto"
+		}
+
 		chatReq := models.ChatCompletionRequest{
-			Model: "auto",
+			Model: modelToUse,
 			Messages: []models.ChatMessage{
-				{Role: "user", Content: imagePrompt},
+				{Role: "user", Content: userContent},
 			},
 			Stream: false,
 		}
@@ -892,6 +1180,7 @@ func (s *Server) handleImageGenerations(w http.ResponseWriter, r *http.Request) 
 		if resp != nil && len(resp.Choices) > 0 {
 			content = resp.Choices[0].Message.TextContent()
 		}
+		log.Printf("[IMAGE GEN DEBUG] Candidate %s returned content: %q, err: %v", account.Name, content, err)
 
 		// Case A: ChatGPT Estuary format: /v1/images/file_...png
 		reEstuary := regexp.MustCompile(`(?:https?://[^/\s]+)?/v1/images/([a-zA-Z0-9_\-]+)\.png`)
@@ -904,13 +1193,48 @@ func (s *Server) handleImageGenerations(w http.ResponseWriter, r *http.Request) 
 				RevisedPrompt: req.Prompt,
 			}
 
-			if req.ResponseFormat == "b64_json" {
-				if downloader, ok := provider.(providers.ImageDownloader); ok {
+			// Pre-cache into in-memory Zero-Disk MediaManager for fast display and Recent Media Gallery
+			if downloader, ok := provider.(providers.ImageDownloader); ok {
+				if req.ResponseFormat == "b64_json" {
 					imgBytes, err := downloader.DownloadImage(ctx, account.Cookie, fileID)
 					if err == nil && len(imgBytes) > 0 {
 						dataItem.B64JSON = base64.StdEncoding.EncodeToString(imgBytes)
 						dataItem.URL = ""
+						media.GetManager().Store(&media.MediaItem{
+							ID:            fileID,
+							Type:          "image",
+							ContentType:   "image/png",
+							Data:          imgBytes,
+							Prompt:        req.Prompt,
+							RevisedPrompt: req.Prompt,
+							Model:         modelToUse,
+							Provider:      account.Provider,
+							AccountName:   account.Name,
+							CreatedAt:     time.Now(),
+						})
 					}
+				} else {
+					// Async prefetch into RAM buffer so browser gets 0ms fast response
+					go func(fID string, cookie string, pPrompt string, mModel string, aName string) {
+						bgCtx, bgCancel := context.WithTimeout(context.Background(), 60*time.Second)
+						defer bgCancel()
+						imgBytes, err := downloader.DownloadImage(bgCtx, cookie, fID)
+						if err == nil && len(imgBytes) > 0 {
+							media.GetManager().Store(&media.MediaItem{
+								ID:            fID,
+								Type:          "image",
+								ContentType:   "image/png",
+								Data:          imgBytes,
+								Prompt:        pPrompt,
+								RevisedPrompt: pPrompt,
+								Model:         mModel,
+								Provider:      "chatgpt",
+								AccountName:   aName,
+								CreatedAt:     time.Now(),
+							})
+							log.Printf("[IMAGE GEN] Prefetched and cached %s (%d bytes) in RAM buffer", fID, len(imgBytes))
+						}
+					}(fileID, account.Cookie, req.Prompt, modelToUse, account.Name)
 				}
 			}
 
@@ -924,8 +1248,18 @@ func (s *Server) handleImageGenerations(w http.ResponseWriter, r *http.Request) 
 		// Case B: Direct remote image URL (Gemini Google User Content or external URL)
 		reURL := regexp.MustCompile(`https?://(?:lh\d+\.googleusercontent\.com|images\.google\.com|cdn\.[^\s\"\']+)/[^\s\"\')]+`)
 		if imgURLMatch := reURL.FindString(content); imgURLMatch != "" {
+			fullResMatch := imgURLMatch
+			if strings.Contains(fullResMatch, "googleusercontent.com") && !strings.Contains(fullResMatch, "=s") && !strings.Contains(fullResMatch, "=w") {
+				fullResMatch += "=s0"
+			}
+			hdrs := make(map[string]string)
+			if account.Provider == "gemini" || strings.Contains(imgURLMatch, "googleusercontent.com") {
+				hdrs["Cookie"] = account.Cookie
+				hdrs["Referer"] = "https://gemini.google.com/"
+			}
 			// Stream remote image directly into RAM buffer (Zero-Disk)
-			imgBytes, cType, err := media.FetchRemoteMediaStream(ctx, imgURLMatch)
+			imgBytes, cType, err := media.FetchRemoteMediaStreamWithHeaders(ctx, fullResMatch, hdrs)
+			log.Printf("[IMAGE GEN DEBUG] Downloaded %s: %d bytes, cType=%s, err=%v", fullResMatch[:35], len(imgBytes), cType, err)
 			if err == nil && len(imgBytes) > 100 {
 				fileID := fmt.Sprintf("img_%s", generateUUID()[:12])
 				media.GetManager().Store(&media.MediaItem{
@@ -959,44 +1293,57 @@ func (s *Server) handleImageGenerations(w http.ResponseWriter, r *http.Request) 
 			}
 		}
 
-		// Case C: Synthesize zero-disk dynamic visual image in RAM (100% reliable fallback)
-		imgBytes, cType, err := media.GenerateDynamicImage(req.Prompt, req.Model, req.Size)
-		if err == nil && len(imgBytes) > 0 {
-			fileID := fmt.Sprintf("img_%s", generateUUID()[:12])
-			if cType == "" {
-				cType = "image/png"
-			}
-			media.GetManager().Store(&media.MediaItem{
-				ID:            fileID,
-				Type:          "image",
-				ContentType:   cType,
-				Data:          imgBytes,
-				Prompt:        req.Prompt,
-				RevisedPrompt: content,
-				Model:         req.Model,
-				Provider:      account.Provider,
-				AccountName:   account.Name,
-				CreatedAt:     time.Now(),
-			})
+		log.Printf("[IMAGE GEN] Candidate %s did not return image estuary/url, trying next candidate...", account.Name)
+		lastErr = fmt.Errorf("candidate %s did not produce image output", account.Name)
+	}
 
-			imageURL := fmt.Sprintf("%s://%s/v1/images/%s.png", scheme, host, fileID)
-			dataItem := models.ImageGenerationData{
-				URL:           imageURL,
-				RevisedPrompt: content,
-			}
-			if req.ResponseFormat == "b64_json" {
-				dataItem.B64JSON = base64.StdEncoding.EncodeToString(imgBytes)
-				dataItem.URL = ""
-			}
+	if len(candidates) > 0 && lastErr != nil && req.Model != "fallback" {
+		log.Printf("[IMAGE GEN] Upstream failed: %v", lastErr)
+		writeJSON(w, http.StatusBadGateway, map[string]interface{}{
+			"error": map[string]string{
+				"message": fmt.Sprintf("Gagal generate gambar dari provider: %v", lastErr),
+				"type":    "upstream_error",
+			},
+		})
+		return
+	}
 
-			writeJSON(w, http.StatusOK, models.ImageGenerationResponse{
-				Created: time.Now().Unix(),
-				Data:    []models.ImageGenerationData{dataItem},
-			})
-			return
+	// Case C: If all upstream accounts failed, fallback to zero-disk in RAM
+	log.Printf("[IMAGE GEN] All candidates exhausted, invoking dynamic visual fallback...")
+	imgBytes, cType, err := media.GenerateDynamicImage(req.Prompt+styleDirective, req.Model, req.Size)
+	if err == nil && len(imgBytes) > 0 {
+		fileID := fmt.Sprintf("img_%s", generateUUID()[:12])
+		if cType == "" {
+			cType = "image/png"
+		}
+		media.GetManager().Store(&media.MediaItem{
+			ID:            fileID,
+			Type:          "image",
+			ContentType:   cType,
+			Data:          imgBytes,
+			Prompt:        req.Prompt,
+			RevisedPrompt: req.Prompt,
+			Model:         req.Model,
+			Provider:      "fallback",
+			AccountName:   "in-memory-flux",
+			CreatedAt:     time.Now(),
+		})
+
+		imageURL := fmt.Sprintf("%s://%s/v1/images/%s.png", scheme, host, fileID)
+		dataItem := models.ImageGenerationData{
+			URL:           imageURL,
+			RevisedPrompt: req.Prompt,
+		}
+		if req.ResponseFormat == "b64_json" {
+			dataItem.B64JSON = base64.StdEncoding.EncodeToString(imgBytes)
+			dataItem.URL = ""
 		}
 
-		lastErr = fmt.Errorf("failed to process image generation: %v", err)
+		writeJSON(w, http.StatusOK, models.ImageGenerationResponse{
+			Created: time.Now().Unix(),
+			Data:    []models.ImageGenerationData{dataItem},
+		})
+		return
 	}
 
 	writeJSON(w, http.StatusBadGateway, map[string]interface{}{
@@ -1005,6 +1352,57 @@ func (s *Server) handleImageGenerations(w http.ResponseWriter, r *http.Request) 
 			"type":    "upstream_error",
 		},
 	})
+}
+
+// ── Image Edits (OpenAI Standard POST /v1/images/edits) ─────────────────────
+
+func (s *Server) handleImageEdits(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+
+	contentType := r.Header.Get("Content-Type")
+	if strings.HasPrefix(contentType, "multipart/form-data") {
+		err := r.ParseMultipartForm(32 << 20)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "failed to parse multipart form: " + err.Error()})
+			return
+		}
+
+		file, header, err := r.FormFile("image")
+		var b64Data string
+		if err == nil && file != nil {
+			defer file.Close()
+			bytes, err := io.ReadAll(file)
+			if err == nil && len(bytes) > 0 {
+				mime := header.Header.Get("Content-Type")
+				if mime == "" {
+					mime = "image/png"
+				}
+				b64Data = fmt.Sprintf("data:%s;base64,%s", mime, base64.StdEncoding.EncodeToString(bytes))
+			}
+		}
+
+		prompt := r.FormValue("prompt")
+		model := r.FormValue("model")
+		size := r.FormValue("size")
+		style := r.FormValue("style")
+
+		req := models.ImageGenerationRequest{
+			Prompt: prompt,
+			Model:  model,
+			Size:   size,
+			Style:  style,
+			Image:  b64Data,
+		}
+
+		reqBody, _ := json.Marshal(req)
+		r.Body = io.NopCloser(bytes.NewReader(reqBody))
+		r.Header.Set("Content-Type", "application/json")
+	}
+
+	s.handleImageGenerations(w, r)
 }
 
 // ── Video Generations (OpenAI Standard POST /v1/videos/generations) ─────────

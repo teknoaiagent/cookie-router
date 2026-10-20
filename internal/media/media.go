@@ -4,10 +4,12 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"image"
 	"image/color"
 	"image/draw"
+	"image/jpeg"
 	"image/png"
 	"io"
 	"log"
@@ -38,10 +40,12 @@ type MediaItem struct {
 
 // Manager manages in-memory media with zero disk storage and LRU eviction
 type Manager struct {
-	mu       sync.RWMutex
-	items    map[string]*MediaItem
-	order    []string
-	maxItems int
+	mu         sync.RWMutex
+	items      map[string]*MediaItem
+	order      []string
+	maxItems   int
+	totalBytes int64
+	maxBytes   int64 // Maximum memory budget in bytes (default: 50MB for embedded/STB safety)
 }
 
 var (
@@ -52,7 +56,7 @@ var (
 // GetManager returns the singleton MediaManager instance
 func GetManager() *Manager {
 	once.Do(func() {
-		defaultManager = NewManager(60) // Keep at most 60 media items in RAM (~20MB max)
+		defaultManager = NewManager(50) // Keep at most 50 media items in RAM (~50MB max ceiling)
 	})
 	return defaultManager
 }
@@ -63,9 +67,11 @@ func NewManager(maxItems int) *Manager {
 		maxItems = 50
 	}
 	return &Manager{
-		items:    make(map[string]*MediaItem),
-		order:    make([]string, 0, maxItems),
-		maxItems: maxItems,
+		items:      make(map[string]*MediaItem),
+		order:      make([]string, 0, maxItems),
+		maxItems:   maxItems,
+		maxBytes:   50 * 1024 * 1024, // 50MB RAM ceiling for STB embedded devices
+		totalBytes: 0,
 	}
 }
 
@@ -77,21 +83,29 @@ func (m *Manager) Store(item *MediaItem) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	// If key exists, update in-place
-	if _, exists := m.items[item.ID]; exists {
+	itemSize := int64(len(item.Data))
+
+	// If key exists, update in-place and adjust totalBytes
+	if old, exists := m.items[item.ID]; exists {
+		m.totalBytes -= int64(len(old.Data))
+		m.totalBytes += itemSize
 		m.items[item.ID] = item
 		return
 	}
 
-	// Prune if limit reached
-	for len(m.order) >= m.maxItems {
+	// Prune if item count or total memory budget exceeded
+	for (len(m.order) >= m.maxItems || (m.maxBytes > 0 && m.totalBytes+itemSize > m.maxBytes)) && len(m.order) > 0 {
 		oldestID := m.order[0]
 		m.order = m.order[1:]
-		delete(m.items, oldestID)
+		if oldItem, ok := m.items[oldestID]; ok {
+			m.totalBytes -= int64(len(oldItem.Data))
+			delete(m.items, oldestID)
+		}
 	}
 
 	m.items[item.ID] = item
 	m.order = append(m.order, item.ID)
+	m.totalBytes += itemSize
 }
 
 // Get retrieves a media item by ID
@@ -141,8 +155,25 @@ func (m *Manager) ServeHTTP(w http.ResponseWriter, r *http.Request, id string) {
 	}
 	filename := fmt.Sprintf("%s%s", item.ID, ext)
 
+	serveData := item.Data
+	serveContentType := item.ContentType
+
+	// When downloading as PNG (or format=png) and source is JPEG, convert to true uncompressed lossless PNG (several MBs)
+	if item.Type == "image" && (strings.HasSuffix(r.URL.Path, ".png") || r.URL.Query().Get("format") == "png") && strings.Contains(item.ContentType, "jpeg") {
+		if r.URL.Query().Get("format") != "raw" && r.URL.Query().Get("format") != "jpg" && (r.URL.Query().Get("download") == "1" || r.URL.Query().Get("format") == "png") {
+			if img, err := jpeg.Decode(bytes.NewReader(item.Data)); err == nil {
+				var buf bytes.Buffer
+				if err := png.Encode(&buf, img); err == nil {
+					serveData = buf.Bytes()
+					serveContentType = "image/png"
+					ext = ".png"
+				}
+			}
+		}
+	}
+
 	// Set content type and caching headers
-	w.Header().Set("Content-Type", item.ContentType)
+	w.Header().Set("Content-Type", serveContentType)
 	w.Header().Set("Accept-Ranges", "bytes")
 	w.Header().Set("Cache-Control", "public, max-age=86400")
 
@@ -157,7 +188,7 @@ func (m *Manager) ServeHTTP(w http.ResponseWriter, r *http.Request, id string) {
 	}
 
 	// ServeContent handles HTTP 206 Partial Content, Range headers, and HEAD automatically
-	http.ServeContent(w, r, filename, item.CreatedAt, bytes.NewReader(item.Data))
+	http.ServeContent(w, r, filename, item.CreatedAt, bytes.NewReader(serveData))
 }
 
 func sanitizeFilename(s string) string {
@@ -357,13 +388,41 @@ func GenerateDynamicImage(prompt, model, aspect string) ([]byte, string, error) 
 
 // FetchRemoteMediaStream streams a remote image/video directly into RAM with zero disk writes
 func FetchRemoteMediaStream(ctx context.Context, mediaURL string) ([]byte, string, error) {
+	return FetchRemoteMediaStreamWithHeaders(ctx, mediaURL, nil)
+}
+
+// FetchRemoteMediaStreamWithHeaders streams a remote image/video with optional custom headers (e.g. Google cookies/referer)
+func FetchRemoteMediaStreamWithHeaders(ctx context.Context, mediaURL string, headers map[string]string) ([]byte, string, error) {
 	req, err := http.NewRequestWithContext(ctx, "GET", mediaURL, nil)
 	if err != nil {
 		return nil, "", err
 	}
-	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36")
+	for k, v := range headers {
+		req.Header.Set(k, v)
+	}
 
-	client := &http.Client{Timeout: 30 * time.Second}
+	client := &http.Client{
+		Timeout: 30 * time.Second,
+		CheckRedirect: func(redirectReq *http.Request, via []*http.Request) error {
+			if len(via) >= 10 {
+				return errors.New("stopped after 10 redirects")
+			}
+			// Retain Cookie, User-Agent and Referer across redirects (especially Google usercontent cross-domain)
+			if len(via) > 0 {
+				if c := via[0].Header.Get("Cookie"); c != "" {
+					redirectReq.Header.Set("Cookie", c)
+				}
+				if r := via[0].Header.Get("Referer"); r != "" {
+					redirectReq.Header.Set("Referer", r)
+				}
+				if ua := via[0].Header.Get("User-Agent"); ua != "" {
+					redirectReq.Header.Set("User-Agent", ua)
+				}
+			}
+			return nil
+		},
+	}
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, "", err

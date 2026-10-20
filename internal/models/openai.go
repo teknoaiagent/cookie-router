@@ -34,6 +34,27 @@ func (m *ChatMessage) TextContent() string {
 	}
 }
 
+func (m *ChatMessage) ImageURLs() []string {
+	if m.Content == nil {
+		return nil
+	}
+	var urls []string
+	if parts, ok := m.Content.([]interface{}); ok {
+		for _, part := range parts {
+			if pMap, ok := part.(map[string]interface{}); ok {
+				if pMap["type"] == "image_url" {
+					if imgObj, ok := pMap["image_url"].(map[string]interface{}); ok {
+						if u, ok := imgObj["url"].(string); ok && u != "" {
+							urls = append(urls, u)
+						}
+					}
+				}
+			}
+		}
+	}
+	return urls
+}
+
 type ChatCompletionRequest struct {
 	Model       string        `json:"model"`
 	Messages    []ChatMessage `json:"messages"`
@@ -100,15 +121,17 @@ type ModelList struct {
 }
 
 type ImageGenerationRequest struct {
-	Prompt         string `json:"prompt"`
-	Model          string `json:"model,omitempty"`
-	AccountID      string `json:"account_id,omitempty"`
-	N              int    `json:"n,omitempty"`
-	Quality        string `json:"quality,omitempty"`
-	ResponseFormat string `json:"response_format,omitempty"` // "url" or "b64_json"
-	Size           string `json:"size,omitempty"`
-	Style          string `json:"style,omitempty"`
-	User           string `json:"user,omitempty"`
+	Prompt         string   `json:"prompt"`
+	Model          string   `json:"model,omitempty"`
+	AccountID      string   `json:"account_id,omitempty"`
+	Image          string   `json:"image,omitempty"` // Base64 or URL for img2img
+	Attachments    []string `json:"attachments,omitempty"`
+	N              int      `json:"n,omitempty"`
+	Quality        string   `json:"quality,omitempty"`
+	ResponseFormat string   `json:"response_format,omitempty"` // "url" or "b64_json"
+	Size           string   `json:"size,omitempty"`
+	Style          string   `json:"style,omitempty"`
+	User           string   `json:"user,omitempty"`
 }
 
 type ImageGenerationData struct {

@@ -1,9 +1,16 @@
 package utils
 
 import (
+	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
+	"net/http"
+	"net/url"
+	"regexp"
 	"strings"
+	"time"
 )
 
 // NormalizeCookie parses various cookie formats:
@@ -156,4 +163,128 @@ func NormalizeCookie(raw string, provider string) string {
 	}
 
 	return raw
+}
+
+// ExtractEmailFromRaw attempts to extract an email address from cookie strings, JSON, or JWT tokens.
+func ExtractEmailFromRaw(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
+	}
+
+	// 1. Try decoding JWT payloads
+	parts := strings.FieldsFunc(raw, func(r rune) bool {
+		return r == ';' || r == ' ' || r == '\n' || r == '	' || r == '"' || r == '\'' || r == ','
+	})
+	for _, p := range parts {
+		if strings.Contains(p, "=") {
+			p = p[strings.Index(p, "=")+1:]
+		}
+		dots := strings.Split(p, ".")
+		if len(dots) == 3 && strings.HasPrefix(dots[0], "eyJ") {
+			// Payload is dots[1]
+			seg := dots[1]
+			if l := len(seg) % 4; l > 0 {
+				seg += strings.Repeat("=", 4-l)
+			}
+			data, err := base64.URLEncoding.DecodeString(seg)
+			if err == nil {
+				var claims map[string]interface{}
+				if err := json.Unmarshal(data, &claims); err == nil {
+					if email, ok := claims["email"].(string); ok && strings.Contains(email, "@") {
+						return email
+					}
+					if prof, ok := claims["https://api.openai.com/profile"].(map[string]interface{}); ok {
+						if email, ok := prof["email"].(string); ok && strings.Contains(email, "@") {
+							return email
+						}
+					}
+					if sub, ok := claims["sub"].(string); ok && strings.Contains(sub, "@") {
+						return sub
+					}
+				}
+			}
+		}
+	}
+
+	// 2. Try URL decoding
+	decoded := raw
+	if strings.Contains(decoded, "%40") || strings.Contains(decoded, "%20") {
+		if unescaped, err := url.QueryUnescape(decoded); err == nil {
+			decoded = unescaped
+		}
+	}
+
+	// 3. Fallback to Regex extraction
+	emailRegex := regexp.MustCompile(`[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}`)
+	matches := emailRegex.FindAllString(decoded, -1)
+	for _, m := range matches {
+		lower := strings.ToLower(m)
+		// Filter common false positives
+		if strings.Contains(lower, "example.com") ||
+			strings.Contains(lower, "domain.com") ||
+			strings.HasSuffix(lower, ".png") ||
+			strings.HasSuffix(lower, ".jpg") ||
+			strings.HasSuffix(lower, ".gif") ||
+			strings.HasSuffix(lower, ".webp") {
+			continue
+		}
+		return m
+	}
+
+	return ""
+}
+
+// ParseImageData parses base64, data URIs, or remote URLs into raw image bytes and mime type.
+func ParseImageData(raw string) ([]byte, string, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil, "", errors.New("empty image data")
+	}
+
+	// 1. Data URI: data:image/png;base64,...
+	if strings.HasPrefix(raw, "data:") {
+		commaIdx := strings.Index(raw, ",")
+		if commaIdx > 0 {
+			header := raw[:commaIdx]
+			b64 := raw[commaIdx+1:]
+			mime := "image/png"
+			if strings.Contains(header, ":") && strings.Contains(header, ";") {
+				start := strings.Index(header, ":") + 1
+				end := strings.Index(header, ";")
+				if end > start {
+					mime = header[start:end]
+				}
+			}
+			data, err := base64.StdEncoding.DecodeString(b64)
+			if err != nil {
+				data, err = base64.URLEncoding.DecodeString(b64)
+			}
+			return data, mime, err
+		}
+	}
+
+	// 2. HTTP/HTTPS URL
+	if strings.HasPrefix(raw, "http://") || strings.HasPrefix(raw, "https://") {
+		client := &http.Client{Timeout: 15 * time.Second}
+		resp, err := client.Get(raw)
+		if err != nil {
+			return nil, "", err
+		}
+		defer resp.Body.Close()
+		data, err := io.ReadAll(resp.Body)
+		mime := resp.Header.Get("Content-Type")
+		if mime == "" {
+			mime = "image/png"
+		}
+		return data, mime, err
+	}
+
+	// 3. Raw Base64 string
+	data, err := base64.StdEncoding.DecodeString(raw)
+	if err == nil && len(data) > 0 {
+		return data, "image/png", nil
+	}
+
+	return nil, "", errors.New("unsupported image format")
 }

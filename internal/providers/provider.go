@@ -19,6 +19,16 @@ type ImageDownloader interface {
 	DownloadImage(ctx context.Context, cookie string, fileID string) ([]byte, error)
 }
 
+type AccountInfo struct {
+	Email string `json:"email,omitempty"`
+	Name  string `json:"name,omitempty"`
+	Plan  string `json:"plan,omitempty"`
+}
+
+type AccountInfoDetector interface {
+	DetectAccountInfo(ctx context.Context, cookie string) (*AccountInfo, error)
+}
+
 var Registry = make(map[string]Provider)
 
 func Register(p Provider) {
