@@ -980,3 +980,189 @@ func (p *Provider) resolveC8o8FeDownloadURL(ctx context.Context, normCookie, atT
 
 	return ""
 }
+
+// GenerateVideo implements providers.VideoGenerator.
+// It initiates video generation via Gemini's StreamGenerate, captures the conversation ID,
+// polls Google's batchexecute rpcids=hNvQHb until the video is rendered, and streams
+// the full master MP4 video directly into memory (Zero-Disk).
+func (p *Provider) GenerateVideo(ctx context.Context, cookie, prompt, aspect string, duration int) ([]byte, string, error) {
+	norm := normalizeCookie(cookie)
+	if liveCookie := syncLiveGeminiCookie(); liveCookie != "" {
+		norm = normalizeCookie(liveCookie)
+	}
+	if !strings.Contains(norm, "__Secure-1PSID") {
+		return nil, "", errors.New("missing __Secure-1PSID in cookie")
+	}
+
+	at, bl, err := p.getTokens(ctx, norm)
+	if err != nil {
+		return nil, "", err
+	}
+
+	cleanPrompt := strings.TrimSpace(prompt)
+	if cleanPrompt == "" {
+		return nil, "", errors.New("empty prompt in video generation request")
+	}
+
+	// Format video prompt with aspect ratio instruction if applicable
+	videoPrompt := cleanPrompt
+	if !strings.HasPrefix(strings.ToLower(cleanPrompt), "video") && !strings.HasPrefix(strings.ToLower(cleanPrompt), "buat video") {
+		videoPrompt = "video " + cleanPrompt
+	}
+	if aspect == "9:16" {
+		videoPrompt += " (rasio aspek 9:16)"
+	} else if aspect == "16:9" {
+		videoPrompt += " (rasio aspek 16:9)"
+	}
+
+	modeID := "95a4c0abcba24364" // Gemini 4 Argon
+	innerPayload := []interface{}{
+		[]interface{}{videoPrompt, 0, nil, nil, nil, nil, 0},
+		nil,
+		[]interface{}{"", "", ""},
+		modeID,
+	}
+
+	innerJSON, err := json.Marshal(innerPayload)
+	if err != nil {
+		return nil, "", fmt.Errorf("marshal inner payload: %w", err)
+	}
+
+	envelope := []interface{}{nil, string(innerJSON)}
+	envelopeJSON, err := json.Marshal(envelope)
+	if err != nil {
+		return nil, "", fmt.Errorf("marshal envelope: %w", err)
+	}
+
+	formData := url.Values{}
+	formData.Set("f.req", string(envelopeJSON))
+	formData.Set("at", at)
+
+	reqID := 100000 + (time.Now().UnixNano() % 900000)
+	genURL := fmt.Sprintf("https://gemini.google.com/_/BardChatUi/data/assistant.lamda.BardFrontendService/StreamGenerate?bl=%s&_reqid=%d&rt=c",
+		url.QueryEscape(bl), reqID)
+
+	httpReq, err := http.NewRequestWithContext(ctx, "POST", genURL, strings.NewReader(formData.Encode()))
+	if err != nil {
+		return nil, "", fmt.Errorf("create stream request: %w", err)
+	}
+
+	httpReq.Header.Set("Content-Type", "application/x-www-form-urlencoded;charset=UTF-8")
+	httpReq.Header.Set("Cookie", stripCustomTokens(norm))
+	httpReq.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36")
+	httpReq.Header.Set("Origin", "https://gemini.google.com")
+	httpReq.Header.Set("Referer", "https://gemini.google.com/app")
+	httpReq.Header.Set("X-Same-Domain", "1")
+	httpReq.Header.Set("Accept", "*/*")
+
+	client := &http.Client{Timeout: 60 * time.Second}
+	resp, err := client.Do(httpReq)
+	if err != nil {
+		return nil, "", fmt.Errorf("gemini StreamGenerate request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		bodyPreview, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+		return nil, "", fmt.Errorf("gemini StreamGenerate HTTP %d: %s", resp.StatusCode, string(bodyPreview))
+	}
+
+	// Read StreamGenerate to extract conversation ID and initial status
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, "", fmt.Errorf("read stream response: %w", err)
+	}
+	streamBody := string(bodyBytes)
+
+	// Extract conversation ID: c_[0-9a-f]{8,}
+	reConv := regexp.MustCompile(`c_[0-9a-f]{8,}`)
+	convMatches := reConv.FindAllString(streamBody, -1)
+	if len(convMatches) == 0 {
+		return nil, "", errors.New("no conversation ID found in Gemini video response")
+	}
+	convID := convMatches[0]
+	log.Printf("[GEMINI VIDEO] Initiated video generation for conversation %s", convID)
+
+	// Check if video URL is already present in StreamGenerate
+	reVidURL := regexp.MustCompile(`https://contribution\.usercontent\.google\.com/download[^\s"'\\<>]+filename(?:\\u003d|=|\\\\u003d)video\.mp4[^\s"'\\<>]*`)
+	if m := reVidURL.FindString(streamBody); m != "" {
+		cleanURL := strings.ReplaceAll(m, `\\u003d`, "=")
+		cleanURL = strings.ReplaceAll(cleanURL, `\u003d`, "=")
+		cleanURL = strings.ReplaceAll(cleanURL, `\\u0026`, "&")
+		cleanURL = strings.ReplaceAll(cleanURL, `\u0026`, "&")
+		hdrs := map[string]string{
+			"Cookie":  stripCustomTokens(norm),
+			"Referer": "https://gemini.google.com/",
+		}
+		vidBytes, _, err := media.FetchRemoteMediaStreamWithHeaders(ctx, cleanURL, hdrs)
+		if err == nil && len(vidBytes) > 1000 {
+			return vidBytes, "Video Anda sudah siap!", nil
+		}
+	}
+
+	// Poll Google's batchexecute rpcids=hNvQHb until video is completed (up to 35s for fast response)
+	pollTicker := time.NewTicker(4 * time.Second)
+	defer pollTicker.Stop()
+
+	pollTimeout := 35 * time.Second
+	pollCtx, pollCancel := context.WithTimeout(ctx, pollTimeout)
+	defer pollCancel()
+
+	pollPayload := []interface{}{convID, 10, nil, 1, []int{1}, []int{4}, nil, 1}
+	pollInnerJSON, _ := json.Marshal(pollPayload)
+	pollFreqJSON, _ := json.Marshal([][][]interface{}{{{"hNvQHb", string(pollInnerJSON), nil, "generic"}}})
+
+	pollData := url.Values{}
+	pollData.Set("f.req", string(pollFreqJSON))
+	pollData.Set("at", at)
+
+	pollURL := fmt.Sprintf("https://gemini.google.com/_/BardChatUi/data/batchexecute?rpcids=hNvQHb&source-path=%%2Fapp%%2F%s&bl=%s&hl=id&rt=c",
+		strings.TrimPrefix(convID, "c_"), url.QueryEscape(bl))
+
+	pollClient := &http.Client{Timeout: 15 * time.Second}
+
+	for {
+		select {
+		case <-pollCtx.Done():
+			return nil, "", fmt.Errorf("video generation polling timed out for conversation %s", convID)
+		case <-pollTicker.C:
+			pReq, pErr := http.NewRequestWithContext(pollCtx, "POST", pollURL, strings.NewReader(pollData.Encode()))
+			if pErr != nil {
+				continue
+			}
+			pReq.Header.Set("Content-Type", "application/x-www-form-urlencoded;charset=UTF-8")
+			pReq.Header.Set("Cookie", stripCustomTokens(norm))
+			pReq.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36")
+			pReq.Header.Set("Origin", "https://gemini.google.com")
+			pReq.Header.Set("Referer", "https://gemini.google.com/app")
+			pReq.Header.Set("X-Same-Domain", "1")
+			pReq.Header.Set("Accept", "*/*")
+
+			pResp, pErr := pollClient.Do(pReq)
+			if pErr != nil {
+				continue
+			}
+			pBytes, _ := io.ReadAll(pResp.Body)
+			pResp.Body.Close()
+
+			pStr := string(pBytes)
+			if vMatch := reVidURL.FindString(pStr); vMatch != "" {
+				cleanURL := strings.ReplaceAll(vMatch, `\\u003d`, "=")
+				cleanURL = strings.ReplaceAll(cleanURL, `\u003d`, "=")
+				cleanURL = strings.ReplaceAll(cleanURL, `\\u0026`, "&")
+				cleanURL = strings.ReplaceAll(cleanURL, `\u0026`, "&")
+				log.Printf("[GEMINI VIDEO] Found completed video URL: %s", cleanURL)
+
+				hdrs := map[string]string{
+					"Cookie":  stripCustomTokens(norm),
+					"Referer": "https://gemini.google.com/",
+				}
+				vidBytes, _, err := media.FetchRemoteMediaStreamWithHeaders(ctx, cleanURL, hdrs)
+				if err == nil && len(vidBytes) > 1000 {
+					log.Printf("[GEMINI VIDEO] Downloaded master video: %d bytes (%.2f MB)", len(vidBytes), float64(len(vidBytes))/(1024*1024))
+					return vidBytes, "Video Anda sudah siap!", nil
+				}
+			}
+		}
+	}
+}

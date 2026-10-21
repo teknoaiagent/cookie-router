@@ -1471,7 +1471,7 @@ func (s *Server) handleVideoGenerations(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(r.Context(), 180*time.Second)
+	ctx, cancel := context.WithTimeout(r.Context(), 60*time.Second)
 	defer cancel()
 
 	scheme := "http"
@@ -1493,33 +1493,49 @@ func (s *Server) handleVideoGenerations(w http.ResponseWriter, r *http.Request) 
 		log.Printf("[VIDEO GEN] Account %d/%d: %s (%s) prompt: %q model: %s",
 			i+1, len(candidates), account.Name, account.Provider, req.Prompt, req.Model)
 
-		// Send video generation command to upstream provider
-		videoPrompt := fmt.Sprintf("Buatkan video pendek: %s (rasio %s, durasi %d detik)",
-			req.Prompt, req.AspectRatio, req.Duration)
-
-		chatReq := models.ChatCompletionRequest{
-			Model: req.Model,
-			Messages: []models.ChatMessage{
-				{Role: "user", Content: videoPrompt},
-			},
-			Stream: false,
-		}
-
-		resp, err := prov.Chat(ctx, &chatReq, account.Cookie)
-		if err != nil {
-			log.Printf("[WARN] upstream video chat notice: %v", err)
-		}
-
+		var vidBytes []byte
 		replyText := ""
-		if resp != nil && len(resp.Choices) > 0 {
-			replyText = resp.Choices[0].Message.TextContent()
+
+		// 1. If provider supports native AI video generation (e.g. Google Veo 2 via Gemini)
+		if vidGen, ok := prov.(providers.VideoGenerator); ok {
+			log.Printf("[VIDEO GEN] Requesting native AI video generation from %s (prompt: %q, aspect: %s)...", account.Name, req.Prompt, req.AspectRatio)
+			vBytes, revPrompt, vErr := vidGen.GenerateVideo(ctx, account.Cookie, req.Prompt, req.AspectRatio, req.Duration)
+			if vErr == nil && len(vBytes) > 1000 {
+				vidBytes = vBytes
+				replyText = revPrompt
+				log.Printf("[VIDEO GEN] Upstream %s generated real master AI video: %d bytes (%.2f MB)", account.Name, len(vidBytes), float64(len(vidBytes))/(1024*1024))
+			} else {
+				log.Printf("[VIDEO GEN] Upstream %s native video generation notice: %v (falling back to dynamic stream)", account.Name, vErr)
+			}
 		}
 
-		// Generate zero-disk streaming MP4 video in memory
-		vidBytes, err := media.GenerateDynamicVideo(ctx, req.Prompt, req.Model, req.Duration, req.AspectRatio)
-		if err != nil {
-			lastErr = err
-			continue
+		// 2. Fallback to conversational model + zero-disk dynamic video if native generator is unavailable
+		if len(vidBytes) == 0 {
+			if replyText == "" {
+				videoPrompt := fmt.Sprintf("Buatkan video pendek: %s (rasio %s, durasi %d detik)",
+					req.Prompt, req.AspectRatio, req.Duration)
+
+				chatReq := models.ChatCompletionRequest{
+					Model: req.Model,
+					Messages: []models.ChatMessage{
+						{Role: "user", Content: videoPrompt},
+					},
+					Stream: false,
+				}
+
+				resp, err := prov.Chat(ctx, &chatReq, account.Cookie)
+				if err == nil && resp != nil && len(resp.Choices) > 0 {
+					replyText = resp.Choices[0].Message.TextContent()
+				}
+			}
+
+			// Generate zero-disk streaming MP4 video in memory
+			vBytes, err := media.GenerateDynamicVideo(ctx, req.Prompt, req.Model, req.Duration, req.AspectRatio)
+			if err != nil {
+				lastErr = err
+				continue
+			}
+			vidBytes = vBytes
 		}
 
 		vidID := fmt.Sprintf("vid_%s", generateUUID()[:12])

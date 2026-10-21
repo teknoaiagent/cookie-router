@@ -19,6 +19,10 @@ type ImageDownloader interface {
 	DownloadImage(ctx context.Context, cookie string, fileID string) ([]byte, error)
 }
 
+type VideoGenerator interface {
+	GenerateVideo(ctx context.Context, cookie string, prompt, aspect string, duration int) ([]byte, string, error)
+}
+
 type AccountInfo struct {
 	Email string `json:"email,omitempty"`
 	Name  string `json:"name,omitempty"`
