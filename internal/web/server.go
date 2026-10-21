@@ -1471,7 +1471,7 @@ func (s *Server) handleVideoGenerations(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(r.Context(), 60*time.Second)
+	ctx, cancel := context.WithTimeout(r.Context(), 180*time.Second)
 	defer cancel()
 
 	scheme := "http"
@@ -1506,6 +1506,9 @@ func (s *Server) handleVideoGenerations(w http.ResponseWriter, r *http.Request) 
 				log.Printf("[VIDEO GEN] Upstream %s generated real master AI video: %d bytes (%.2f MB)", account.Name, len(vidBytes), float64(len(vidBytes))/(1024*1024))
 			} else {
 				log.Printf("[VIDEO GEN] Upstream %s native video generation notice: %v (falling back to dynamic stream)", account.Name, vErr)
+				if strings.Contains(vErr.Error(), "kuota") || strings.Contains(vErr.Error(), "batas") {
+					replyText = fmt.Sprintf("Catatan: Kuota harian video Google Veo di akun Gemini telah tercapai. Video disintesis dalam mode sinematik dinamis.")
+				}
 			}
 		}
 
@@ -1530,7 +1533,9 @@ func (s *Server) handleVideoGenerations(w http.ResponseWriter, r *http.Request) 
 			}
 
 			// Generate zero-disk streaming MP4 video in memory
-			vBytes, err := media.GenerateDynamicVideo(ctx, req.Prompt, req.Model, req.Duration, req.AspectRatio)
+			bgCtx, bgCancel := context.WithTimeout(context.Background(), 45*time.Second)
+			vBytes, err := media.GenerateDynamicVideo(bgCtx, req.Prompt, req.Model, req.Duration, req.AspectRatio)
+			bgCancel()
 			if err != nil {
 				lastErr = err
 				continue

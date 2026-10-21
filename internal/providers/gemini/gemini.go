@@ -1055,7 +1055,7 @@ func (p *Provider) GenerateVideo(ctx context.Context, cookie, prompt, aspect str
 	httpReq.Header.Set("X-Same-Domain", "1")
 	httpReq.Header.Set("Accept", "*/*")
 
-	client := &http.Client{Timeout: 60 * time.Second}
+	client := &http.Client{Timeout: 30 * time.Second}
 	resp, err := client.Do(httpReq)
 	if err != nil {
 		return nil, "", fmt.Errorf("gemini StreamGenerate request failed: %w", err)
@@ -1073,6 +1073,11 @@ func (p *Provider) GenerateVideo(ctx context.Context, cookie, prompt, aspect str
 		return nil, "", fmt.Errorf("read stream response: %w", err)
 	}
 	streamBody := string(bodyBytes)
+
+	// Check if Gemini returned rate limit / quota exceeded for video generation
+	if strings.Contains(streamBody, "batas Anda direset") || strings.Contains(streamBody, "membuat lebih banyak video segera setelah") {
+		return nil, "", errors.New("batas kuota harian video Google Veo di akun Gemini tercapai (kuota harian habis, periksa Setelan Gemini)")
+	}
 
 	// Extract conversation ID: c_[0-9a-f]{8,}
 	reConv := regexp.MustCompile(`c_[0-9a-f]{8,}`)
@@ -1100,11 +1105,11 @@ func (p *Provider) GenerateVideo(ctx context.Context, cookie, prompt, aspect str
 		}
 	}
 
-	// Poll Google's batchexecute rpcids=hNvQHb until video is completed (up to 35s for fast response)
+	// Poll Google's batchexecute rpcids=hNvQHb until video is completed (up to 90s)
 	pollTicker := time.NewTicker(4 * time.Second)
 	defer pollTicker.Stop()
 
-	pollTimeout := 35 * time.Second
+	pollTimeout := 90 * time.Second
 	pollCtx, pollCancel := context.WithTimeout(ctx, pollTimeout)
 	defer pollCancel()
 
