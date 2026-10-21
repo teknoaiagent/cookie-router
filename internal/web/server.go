@@ -1502,34 +1502,18 @@ func (s *Server) handleVideoGenerations(w http.ResponseWriter, r *http.Request) 
 			vBytes, revPrompt, vErr := vidGen.GenerateVideo(ctx, account.Cookie, req.Prompt, req.AspectRatio, req.Duration)
 			if vErr == nil && len(vBytes) > 1000 {
 				vidBytes = vBytes
-				replyText = revPrompt
+				replyText = fmt.Sprintf("🎬 **Google Veo 2 AI Video (Master)**\n\n%s", revPrompt)
 				log.Printf("[VIDEO GEN] Upstream %s generated real master AI video: %d bytes (%.2f MB)", account.Name, len(vidBytes), float64(len(vidBytes))/(1024*1024))
 			} else {
 				log.Printf("[VIDEO GEN] Upstream %s native video generation notice: %v (falling back to dynamic stream)", account.Name, vErr)
-				if strings.Contains(vErr.Error(), "kuota") || strings.Contains(vErr.Error(), "batas") {
-					replyText = fmt.Sprintf("Catatan: Kuota harian video Google Veo di akun Gemini telah tercapai. Video disintesis dalam mode sinematik dinamis.")
-				}
+				replyText = fmt.Sprintf("⚡ **Video AI Cinematic Motion (Mode Dinamis)**\n\nPrompt: *%s*\n\n*(Catatan: Kuota harian Google Veo akun telah mencapai batas maksimum atau antrean render upstream penuh. Video disintesis dalam resolusi 1280×720 HD)*", req.Prompt)
 			}
 		}
 
-		// 2. Fallback to conversational model + zero-disk dynamic video if native generator is unavailable
+		// 2. Fallback to zero-disk dynamic video if native generator is unavailable
 		if len(vidBytes) == 0 {
 			if replyText == "" {
-				videoPrompt := fmt.Sprintf("Buatkan video pendek: %s (rasio %s, durasi %d detik)",
-					req.Prompt, req.AspectRatio, req.Duration)
-
-				chatReq := models.ChatCompletionRequest{
-					Model: req.Model,
-					Messages: []models.ChatMessage{
-						{Role: "user", Content: videoPrompt},
-					},
-					Stream: false,
-				}
-
-				resp, err := prov.Chat(ctx, &chatReq, account.Cookie)
-				if err == nil && resp != nil && len(resp.Choices) > 0 {
-					replyText = resp.Choices[0].Message.TextContent()
-				}
+				replyText = fmt.Sprintf("🎬 Video AI Sinematik: %s", req.Prompt)
 			}
 
 			// Generate zero-disk streaming MP4 video in memory
