@@ -2069,7 +2069,12 @@ function updateGuideSnippets(modelsList) {
 
  setEl('pythonCode', 'from openai import OpenAI\n\nclient = OpenAI(\n    base_url="' + baseUrl + '",\n    api_key="' + apiKey + '"\n)\n\nresponse = client.chat.completions.create(\n    model="' + defaultModel + '",\n    messages=[{"role": "user", "content": "Halo!"}],\n    stream=True\n)\nfor chunk in response:\n    print(chunk.choices[0].delta.content or "", end="")');
 
- setEl('curlCmd', 'curl -s -X POST ' + chatUrl + ' \\\n  -H "Content-Type: application/json" \\\n  -H "Authorization: Bearer ' + apiKey + '" \\\n  -d \'{\n    "model": "' + defaultModel + '",\n    "messages": [{"role": "user", "content": "Halo!"}]\n  }\'');
+ setEl('curlCmd', 'curl -s -X POST ' + chatUrl + ' \\\n  -H "Content-Type: application/json" \\\n  -H "Authorization: *** ' + apiKey + '" \\\n  -d \'{\n    "model": "' + defaultModel + '",\n    "messages": [{"role": "user", "content": "Halo!"}]\n  }\'');
+
+ const imgUrl = origin + '/v1/images/generations';
+ const vidUrl = origin + '/v1/videos/generations';
+ setEl('curlImgCmd', 'curl -X POST ' + imgUrl + ' \\\n  -H "Content-Type: application/json" \\\n  -d \'{\n    "prompt": "Futuristic cyberpunk cat in neo Tokyo",\n    "model": "imagen-3",\n    "size": "1024x1024"\n  }\'');
+ setEl('curlVidCmd', 'curl -X POST ' + vidUrl + ' \\\n  -H "Content-Type: application/json" \\\n  -d \'{\n    "prompt": "A cute cat dancing on the beach at sunset",\n    "model": "veo-2",\n    "aspect_ratio": "16:9",\n    "duration": 5\n  }\'');
 
  setEl('aiderCmd', 'aider --openai-api-base ' + baseUrl + ' --openai-api-key ' + apiKey + ' --model openai/' + defaultModel);
 }

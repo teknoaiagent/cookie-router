@@ -642,12 +642,15 @@ func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleAPIDocs(w http.ResponseWriter, r *http.Request) {
 	cfg := s.cfgMgr.GetConfig()
-	host := r.Host
+	host := r.Header.Get("X-Forwarded-Host")
+	if host == "" {
+		host = r.Host
+	}
 	if host == "" {
 		host = fmt.Sprintf("localhost:%d", cfg.Port)
 	}
 	scheme := "http"
-	if r.TLS != nil {
+	if r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https" {
 		scheme = "https"
 	}
 	baseURL := fmt.Sprintf("%s://%s/v1", scheme, host)
