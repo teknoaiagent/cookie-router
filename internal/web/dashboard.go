@@ -694,6 +694,22 @@ async function refreshAccounts() {
   window.allAccounts = accounts;
   populatePlaygroundAccounts();
 
+  // Auto-detect models in background for any account that has none yet
+  window._autoDetectTriggered = window._autoDetectTriggered || new Set();
+  accounts.forEach(a => {
+    if (a.enabled && (!a.availableModels || a.availableModels.length === 0) && !window._autoDetectTriggered.has(a.id)) {
+      window._autoDetectTriggered.add(a.id);
+      fetch(API + '/api/accounts/models/' + a.id, {method: 'POST'})
+        .then(res => res.json())
+        .then(data => {
+          if (data && data.status === 'success' && data.models && data.models.length > 0) {
+            setTimeout(refreshAccounts, 400);
+          }
+        })
+        .catch(() => {});
+    }
+  });
+
   document.getElementById('totalAccounts').textContent = accounts.length;
   document.getElementById('activeAccounts').textContent = accounts.filter(a => a.status === 'active').length;
 
@@ -736,7 +752,7 @@ async function refreshAccounts() {
         '</div>';
     } else {
       modelsBadgesHtml = '<div class="models-box">' +
-        '<span class="models-title" style="color:#64748b">No detected models yet. Click "⚡ Detect Models" to probe.</span>' +
+        '<span class="models-title" style="color:#64748b">⚡ Mendeteksi model secara otomatis...</span>' +
         '</div>';
     }
 

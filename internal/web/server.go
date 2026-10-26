@@ -14,6 +14,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"cookie-router/internal/config"
@@ -30,14 +31,15 @@ func generateUUID() string {
 }
 
 type Server struct {
-	cfgMgr *config.Manager
-	mux    *http.ServeMux
+	cfgMgr   *config.Manager
+	mux      *http.ServeMux
+	detectMu sync.Map // accountID -> bool (guards against duplicate simultaneous detection)
 }
 
 func NewServer(cfgMgr *config.Manager) *Server {
 	s := &Server{cfgMgr: cfgMgr, mux: http.NewServeMux()}
 	s.registerRoutes()
-	go s.backfillAccountProfiles()
+	go s.autoSyncAccounts()
 	return s
 }
 
@@ -186,6 +188,10 @@ func (s *Server) handleAccounts(w http.ResponseWriter, r *http.Request) {
 		cfg := s.cfgMgr.GetConfig()
 		safeAccounts := make([]map[string]interface{}, len(cfg.Accounts))
 		for i, a := range cfg.Accounts {
+			// Auto-detect models in background if missing
+			if a.Enabled && a.Cookie != "" && len(a.AvailableModels) == 0 {
+				go s.autoDetectAccountModels(a.ID)
+			}
 			safeAccounts[i] = map[string]interface{}{
 				"id":              a.ID,
 				"provider":        a.Provider,
@@ -282,6 +288,8 @@ func (s *Server) handleAccountByID(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusNotFound, map[string]string{"error": err.Error()})
 			return
 		}
+		// Auto-trigger model and profile detection on account update
+		go s.autoDetectAccountModels(id)
 		writeJSON(w, http.StatusOK, map[string]string{"status": "updated"})
 	case http.MethodDelete:
 		if err := s.cfgMgr.DeleteAccount(id); err != nil {
@@ -418,26 +426,84 @@ func (s *Server) handleProbeAccount(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, resp)
 }
 
-func (s *Server) backfillAccountProfiles() {
-	time.Sleep(1 * time.Second)
+func (s *Server) autoDetectAccountModels(accID string) {
+	if _, loaded := s.detectMu.LoadOrStore(accID, true); loaded {
+		return // already detecting for this account
+	}
+	defer s.detectMu.Delete(accID)
+
 	cfg := s.cfgMgr.GetConfig()
+	var target *config.Account
 	for _, a := range cfg.Accounts {
-		if a.Email == "" && a.Cookie != "" {
-			if p := providers.Get(a.Provider); p != nil {
-				if detector, ok := p.(providers.AccountInfoDetector); ok {
-					ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-					if info, err := detector.DetectAccountInfo(ctx, a.Cookie); err == nil && info != nil && info.Email != "" {
-						s.cfgMgr.SetAccountProfile(a.ID, info.Email, info.Plan)
-					}
-					cancel()
-				}
+		if a.ID == accID && a.Enabled && a.Cookie != "" {
+			target = a
+			break
+		}
+	}
+	if target == nil {
+		return
+	}
+
+	p := providers.Get(target.Provider)
+	if p == nil {
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 35*time.Second)
+	defer cancel()
+
+	// 1. Auto-detect profile / email if missing
+	if target.Email == "" || target.Plan == "" {
+		if detector, ok := p.(providers.AccountInfoDetector); ok {
+			if info, err := detector.DetectAccountInfo(ctx, target.Cookie); err == nil && info != nil {
+				s.cfgMgr.SetAccountProfile(target.ID, info.Email, info.Plan)
 			}
-			if a.Email == "" {
-				if em := utils.ExtractEmailFromRaw(a.Cookie); em != "" {
-					s.cfgMgr.SetAccountProfile(a.ID, em, "")
+		}
+		if target.Email == "" {
+			if em := utils.ExtractEmailFromRaw(target.Cookie); em != "" {
+				s.cfgMgr.SetAccountProfile(target.ID, em, "")
+			}
+		}
+	}
+
+	// 2. Auto-detect available models
+	models, err := p.GetAvailableModels(ctx, target.Cookie)
+	if (err == nil || len(models) > 0) && len(models) > 0 {
+		s.cfgMgr.SetAccountModels(target.ID, models)
+		s.cfgMgr.SetAccountStatus(target.ID, "active", "")
+		log.Printf("[AUTO-DETECT] Successfully auto-detected %d models for %s (%s)", len(models), target.Name, target.Provider)
+	} else {
+		// Fallback to provider default models if detection returned empty
+		defModels := p.DefaultModels()
+		if len(defModels) > 0 && len(target.AvailableModels) == 0 {
+			s.cfgMgr.SetAccountModels(target.ID, defModels)
+			log.Printf("[AUTO-DETECT] Assigned %d default models for %s (%s)", len(defModels), target.Name, target.Provider)
+		}
+	}
+}
+
+func (s *Server) autoSyncAccounts() {
+	time.Sleep(500 * time.Millisecond)
+
+	syncAll := func() {
+		cfg := s.cfgMgr.GetConfig()
+		for _, a := range cfg.Accounts {
+			if a.Enabled && a.Cookie != "" {
+				if len(a.AvailableModels) == 0 || a.Email == "" || a.Status == "untested" {
+					go s.autoDetectAccountModels(a.ID)
 				}
 			}
 		}
+	}
+
+	// 1. Initial sync on server start
+	syncAll()
+
+	// 2. Periodic sync every 15 minutes in background
+	ticker := time.NewTicker(15 * time.Minute)
+	defer ticker.Stop()
+	for range ticker.C {
+		syncAll()
 	}
 }
 
